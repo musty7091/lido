@@ -17,6 +17,18 @@ def normalize_optional_text(value):
     return cleaned_value
 
 
+def parse_table_id(value):
+    try:
+        table_id = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Masa bilgisi geçerli değil.") from exc
+
+    if table_id < 1:
+        raise ValueError("Masa bilgisi geçerli değil.")
+
+    return table_id
+
+
 def parse_party_size(value):
     try:
         party_size = int(value)
@@ -50,10 +62,12 @@ def assign_table(
     customer_phone=None,
     note=None,
     user_id=None,
-    username_snapshot="demo_user",
-    role_snapshot="demo_operator",
+    username_snapshot="system",
+    role_snapshot="system",
 ):
-    table = Table.query.get(table_id)
+    parsed_table_id = parse_table_id(table_id)
+
+    table = db.session.get(Table, parsed_table_id)
 
     if table is None:
         raise ValueError("Seçilen masa bulunamadı.")
@@ -131,10 +145,12 @@ def calculate_duration_minutes(start_time, end_time):
 def clear_table(
     table_id,
     user_id=None,
-    username_snapshot="demo_user",
-    role_snapshot="demo_operator",
+    username_snapshot="system",
+    role_snapshot="system",
 ):
-    table = Table.query.get(table_id)
+    parsed_table_id = parse_table_id(table_id)
+
+    table = db.session.get(Table, parsed_table_id)
 
     if table is None:
         raise ValueError("Seçilen masa bulunamadı.")

@@ -1,12 +1,14 @@
 from datetime import timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import auth_bp
 from app.config import Config, INSTANCE_DIR
-from app.extensions import csrf, db
-from app.models import Area, Table, TableSession, utc_now
+from app.extensions import csrf, db, login_manager
+from app.models import Area, Table, TableSession, User, utc_now
 from app.services import assign_table, clear_table
 
 
@@ -245,7 +247,31 @@ def create_app():
     db.init_app(app)
     csrf.init_app(app)
 
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Devam etmek için giriş yapmalısınız."
+    login_manager.login_message_category = "warning"
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        try:
+            parsed_user_id = int(user_id)
+        except (TypeError, ValueError):
+            return None
+
+        return db.session.get(User, parsed_user_id)
+
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        if request.path.startswith("/api/"):
+            return create_error_response("Bu işlem için giriş yapmalısınız.", 401)
+
+        return redirect(url_for("auth.login", next=request.full_path))
+
+    app.register_blueprint(auth_bp)
+
     @app.route("/")
+    @login_required
     def index():
         database_not_ready = False
 
@@ -266,6 +292,7 @@ def create_app():
         )
 
     @app.post("/api/tables/assign")
+    @login_required
     def assign_table_api():
         payload = request.get_json(silent=True) or {}
 
@@ -282,8 +309,9 @@ def create_app():
                 customer_name=customer_name,
                 customer_phone=customer_phone,
                 note=note,
-                username_snapshot="demo_user",
-                role_snapshot="demo_operator",
+                user_id=current_user.id,
+                username_snapshot=current_user.username,
+                role_snapshot=current_user.role,
             )
         except ValueError as exc:
             db.session.rollback()
@@ -301,6 +329,7 @@ def create_app():
         )
 
     @app.post("/api/tables/clear")
+    @login_required
     def clear_table_api():
         payload = request.get_json(silent=True) or {}
 
@@ -309,8 +338,9 @@ def create_app():
         try:
             table_session = clear_table(
                 table_id=table_id,
-                username_snapshot="demo_user",
-                role_snapshot="demo_operator",
+                user_id=current_user.id,
+                username_snapshot=current_user.username,
+                role_snapshot=current_user.role,
             )
         except ValueError as exc:
             db.session.rollback()

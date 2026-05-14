@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-7 col-lg-5">
+            <div class="card border-0 shadow rounded-4">
+                <div class="card-body p-4 p-md-5">
+                    <div class="text-center mb-4">
+                        <div class="display-6 fw-bold text-primary">Lido</div>
+                        <h2 class="h4 fw-bold mb-1">Kullanıcı Girişi</h2>
+                        <p class="text-muted mb-0">
+                            Masa takip sistemine devam etmek için giriş yapın.
+                        </p>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            <div class="mb-3">
+                                {% for category, message in messages %}
+                                <div class="alert alert-{{ category }} rounded-3 mb-2">
+                                    {{ message }}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="post" action="{{ url_for('auth.login', next=next_url) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="next" value="{{ next_url or '' }}">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Kullanıcı Adı</label>
+                            <input
+                                type="text"
+                                name="username"
+                                class="form-control form-control-lg rounded-3"
+                                value="{{ username or '' }}"
+                                autocomplete="username"
+                                required
+                                autofocus
+                            >
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-semibold">Şifre</label>
+                            <input
+                                type="password"
+                                name="password"
+                                class="form-control form-control-lg rounded-3"
+                                autocomplete="current-password"
+                                required
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-lg w-100 rounded-3 fw-bold">
+                            Giriş Yap
+                        </button>
+                    </form>
+
+                    <div class="alert alert-warning rounded-3 mt-4 mb-0">
+                        İlk kurulum kullanıcısı:
+                        <br>
+                        <strong>Kullanıcı adı:</strong> admin
+                        <br>
+                        <strong>Şifre:</strong> admin123
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

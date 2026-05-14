@@ -1,10 +1,61 @@
 from datetime import datetime, timezone
 
+from flask_login import UserMixin
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from app.extensions import db
 
 
 def utc_now():
     return datetime.now(timezone.utc)
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    ROLE_ADMIN = "admin"
+    ROLE_DOOR_STAFF = "door_staff"
+    ROLE_BAR_STAFF = "bar_staff"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    username = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    full_name = db.Column(db.String(120), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default=ROLE_BAR_STAFF)
+
+    password_hash = db.Column(db.String(255), nullable=False)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    is_default_password = db.Column(db.Boolean, nullable=False, default=False)
+
+    last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def role_label(self):
+        role_labels = {
+            self.ROLE_ADMIN: "Yönetici",
+            self.ROLE_DOOR_STAFF: "Kapı Personeli",
+            self.ROLE_BAR_STAFF: "Bar Personeli",
+        }
+
+        return role_labels.get(self.role, self.role)
+
+    def __repr__(self):
+        return f"<User {self.username}>"
 
 
 class Area(db.Model):
