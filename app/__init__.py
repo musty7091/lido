@@ -270,6 +270,34 @@ def create_app():
 
     app.register_blueprint(auth_bp)
 
+    @app.before_request
+    def enforce_default_password_change():
+        if not current_user.is_authenticated:
+            return None
+
+        if not current_user.is_default_password:
+            return None
+
+        allowed_endpoints = {
+            "auth.change_password",
+            "auth.logout",
+            "static",
+        }
+
+        if request.endpoint in allowed_endpoints:
+            return None
+
+        if request.path.startswith("/static/"):
+            return None
+
+        if request.path.startswith("/api/"):
+            return create_error_response(
+                "Varsayılan şifre değiştirilmeden işlem yapılamaz.",
+                403,
+            )
+
+        return redirect(url_for("auth.change_password"))
+
     @app.route("/")
     @login_required
     def index():

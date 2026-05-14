@@ -28,9 +28,34 @@ def is_safe_next_url(next_url):
     return True
 
 
+def validate_new_password(user, new_password, confirm_password):
+    if not new_password:
+        return "Yeni şifre boş olamaz."
+
+    if len(new_password) < 8:
+        return "Yeni şifre en az 8 karakter olmalıdır."
+
+    if new_password != confirm_password:
+        return "Yeni şifre ve tekrar şifre aynı olmalıdır."
+
+    if new_password == "admin123":
+        return "Varsayılan şifre tekrar kullanılamaz."
+
+    if new_password.lower() == user.username.lower():
+        return "Şifre kullanıcı adıyla aynı olamaz."
+
+    if user.check_password(new_password):
+        return "Yeni şifre mevcut şifreyle aynı olamaz."
+
+    return None
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
+        if current_user.is_default_password:
+            return redirect(url_for("auth.change_password"))
+
         return redirect(url_for("index"))
 
     next_url = request.args.get("next")
@@ -60,6 +85,7 @@ def login():
                 "auth/login.html",
                 app_name="Lido Masa Takip Sistemi",
                 username=username,
+                next_url=next_url,
             )
 
         if not user.is_active:
@@ -83,6 +109,7 @@ def login():
                 "auth/login.html",
                 app_name="Lido Masa Takip Sistemi",
                 username=username,
+                next_url=next_url,
             )
 
         user.last_login_at = utc_now()
@@ -102,6 +129,10 @@ def login():
 
         login_user(user)
 
+        if user.is_default_password:
+            flash("Güvenlik için varsayılan şifrenizi değiştirmeniz gerekiyor.", "warning")
+            return redirect(url_for("auth.change_password"))
+
         requested_next_url = request.form.get("next") or next_url
 
         if is_safe_next_url(requested_next_url):
@@ -114,6 +145,59 @@ def login():
         app_name="Lido Masa Takip Sistemi",
         username="",
         next_url=next_url,
+    )
+
+
+@auth_bp.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not current_user.check_password(current_password):
+            flash("Mevcut şifre hatalı.", "danger")
+            return render_template(
+                "auth/change_password.html",
+                app_name="Lido Masa Takip Sistemi",
+            )
+
+        validation_error = validate_new_password(
+            current_user,
+            new_password,
+            confirm_password,
+        )
+
+        if validation_error:
+            flash(validation_error, "danger")
+            return render_template(
+                "auth/change_password.html",
+                app_name="Lido Masa Takip Sistemi",
+            )
+
+        current_user.set_password(new_password)
+        current_user.is_default_password = False
+
+        log_action(
+            action_type="password_changed",
+            target_type="user",
+            target_id=current_user.id,
+            target_label=current_user.username,
+            user_id=current_user.id,
+            username_snapshot=current_user.username,
+            role_snapshot=current_user.role,
+            description="Kullanıcı şifresini değiştirdi.",
+        )
+
+        db.session.commit()
+
+        flash("Şifreniz başarıyla değiştirildi.", "success")
+        return redirect(url_for("index"))
+
+    return render_template(
+        "auth/change_password.html",
+        app_name="Lido Masa Takip Sistemi",
     )
 
 
