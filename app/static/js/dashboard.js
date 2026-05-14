@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
     const tableCards = Array.from(document.querySelectorAll("[data-table-card]"));
     const recommendedButtons = Array.from(document.querySelectorAll("[data-recommended-table]"));
+    const occupancyBars = Array.from(document.querySelectorAll("[data-occupancy-rate]"));
 
     const tableSearchInput = document.getElementById("tableSearchInput");
     const areaFilter = document.getElementById("areaFilter");
@@ -24,6 +25,27 @@ document.addEventListener("DOMContentLoaded", function () {
     const clearTableButton = document.getElementById("clearTableButton");
 
     let selectedTable = null;
+
+    function initializeOccupancyBars() {
+        occupancyBars.forEach(function (bar) {
+            const rawRate = bar.dataset.occupancyRate;
+            let parsedRate = Number.parseFloat(rawRate);
+
+            if (Number.isNaN(parsedRate)) {
+                parsedRate = 0;
+            }
+
+            if (parsedRate < 0) {
+                parsedRate = 0;
+            }
+
+            if (parsedRate > 100) {
+                parsedRate = 100;
+            }
+
+            bar.style.width = `${parsedRate}%`;
+        });
+    }
 
     function getStatusClass(status) {
         if (status === "empty") {
@@ -230,5 +252,6 @@ document.addEventListener("DOMContentLoaded", function () {
         alert(`${selectedTable.code} masası boşaltılacak. Bu adımda henüz veritabanına kayıt yapılmıyor.`);
     });
 
+    initializeOccupancyBars();
     applyFilters();
 });
