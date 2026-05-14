@@ -608,6 +608,61 @@ body {
     font-weight: 700;
 }
 
+.selected-customer-info {
+    margin-top: 12px;
+    background: #ffffff;
+    border: 1px solid var(--lido-border);
+    border-radius: 14px;
+    padding: 12px;
+}
+
+.selected-customer-info.is-passive {
+    background: #f8fafc;
+}
+
+.selected-customer-info h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    font-weight: 850;
+    color: var(--lido-navy);
+}
+
+.customer-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-top: 1px solid #eef2f7;
+    padding: 8px 0;
+}
+
+.customer-info-row span,
+.customer-info-note span {
+    color: var(--lido-muted);
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.customer-info-row strong {
+    text-align: right;
+    color: var(--lido-text);
+    font-size: 13px;
+    font-weight: 850;
+}
+
+.customer-info-note {
+    border-top: 1px solid #eef2f7;
+    padding-top: 8px;
+}
+
+.customer-info-note p {
+    margin: 4px 0 0;
+    color: var(--lido-text);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
 .assignment-form label {
     display: block;
     font-size: 13px;

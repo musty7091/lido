@@ -3,6 +3,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const recommendedButtons = Array.from(document.querySelectorAll("[data-recommended-table]"));
     const occupancyBars = Array.from(document.querySelectorAll("[data-occupancy-rate]"));
 
+    const csrfTokenElement = document.querySelector("meta[name='csrf-token']");
+    const csrfToken = csrfTokenElement ? csrfTokenElement.getAttribute("content") : "";
+
     const tableSearchInput = document.getElementById("tableSearchInput");
     const areaFilter = document.getElementById("areaFilter");
     const capacityFilter = document.getElementById("capacityFilter");
@@ -15,10 +18,21 @@ document.addEventListener("DOMContentLoaded", function () {
     const selectedTableStatus = document.getElementById("selectedTableStatus");
     const selectedTableDuration = document.getElementById("selectedTableDuration");
 
+    const selectedCustomerInfo = document.getElementById("selectedCustomerInfo");
+    const selectedPartySizeText = document.getElementById("selectedPartySizeText");
+    const selectedCustomerNameText = document.getElementById("selectedCustomerNameText");
+    const selectedCustomerPhoneText = document.getElementById("selectedCustomerPhoneText");
+    const selectedCheckInText = document.getElementById("selectedCheckInText");
+    const selectedCustomerNoteText = document.getElementById("selectedCustomerNoteText");
+
     const personCountInput = document.getElementById("personCountInput");
     const decreasePersonButton = document.getElementById("decreasePersonButton");
     const increasePersonButton = document.getElementById("increasePersonButton");
     const assignButton = document.getElementById("assignButton");
+
+    const customerNameInput = document.getElementById("customerNameInput");
+    const customerPhoneInput = document.getElementById("customerPhoneInput");
+    const customerNoteInput = document.getElementById("customerNoteInput");
 
     const staffSelectedTableCode = document.getElementById("staffSelectedTableCode");
     const staffSelectedTableText = document.getElementById("staffSelectedTableText");
@@ -83,8 +97,68 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function valueOrDash(value) {
+        if (value === null || value === undefined) {
+            return "-";
+        }
+
+        const cleanedValue = String(value).trim();
+
+        if (cleanedValue === "") {
+            return "-";
+        }
+
+        return cleanedValue;
+    }
+
+    function clearCustomerForm() {
+        customerNameInput.value = "";
+        customerPhoneInput.value = "";
+        customerNoteInput.value = "";
+    }
+
+    function fillCustomerFormFromSelectedTable() {
+        customerNameInput.value = selectedTable.customerName || "";
+        customerPhoneInput.value = selectedTable.customerPhone || "";
+        customerNoteInput.value = selectedTable.note || "";
+    }
+
+    function updateSelectedCustomerInfo() {
+        const hasActiveCustomer =
+            selectedTable &&
+            (selectedTable.status === "occupied" || selectedTable.status === "long");
+
+        if (!hasActiveCustomer) {
+            selectedCustomerInfo.classList.add("is-passive");
+            selectedPartySizeText.textContent = "-";
+            selectedCustomerNameText.textContent = "-";
+            selectedCustomerPhoneText.textContent = "-";
+            selectedCheckInText.textContent = "-";
+            selectedCustomerNoteText.textContent = "Bu masa boş. Yeni müşteri bilgisi girilebilir.";
+            return;
+        }
+
+        selectedCustomerInfo.classList.remove("is-passive");
+        selectedPartySizeText.textContent = valueOrDash(selectedTable.partySize);
+        selectedCustomerNameText.textContent = valueOrDash(selectedTable.customerName);
+        selectedCustomerPhoneText.textContent = valueOrDash(selectedTable.customerPhone);
+        selectedCheckInText.textContent = valueOrDash(selectedTable.checkInDisplay);
+        selectedCustomerNoteText.textContent = valueOrDash(selectedTable.note);
+    }
+
+    function setButtonLoading(button, isLoading, loadingText, normalText) {
+        if (isLoading) {
+            button.disabled = true;
+            button.dataset.originalText = normalText;
+            button.textContent = loadingText;
+        } else {
+            button.textContent = normalText;
+        }
+    }
+
     function selectTable(card) {
         selectedTable = {
+            id: card.dataset.tableId,
             code: card.dataset.code,
             areaKey: card.dataset.areaKey,
             areaName: card.dataset.areaName,
@@ -92,6 +166,11 @@ document.addEventListener("DOMContentLoaded", function () {
             status: card.dataset.status,
             statusLabel: card.dataset.statusLabel,
             duration: card.dataset.duration,
+            partySize: card.dataset.partySize,
+            customerName: card.dataset.customerName,
+            customerPhone: card.dataset.customerPhone,
+            note: card.dataset.note,
+            checkInDisplay: card.dataset.checkInDisplay,
         };
 
         tableCards.forEach(function (tableCard) {
@@ -112,11 +191,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (selectedTable.status === "occupied" || selectedTable.status === "long") {
             selectedTableDuration.textContent = `Masada kalma süresi: ${selectedTable.duration}`;
+            if (selectedTable.partySize) {
+                personCountInput.value = selectedTable.partySize;
+            }
+            fillCustomerFormFromSelectedTable();
         } else if (selectedTable.status === "empty") {
             selectedTableDuration.textContent = "Bu masa boş. Müşteri ataması yapılabilir.";
+            updatePersonCount(personCountInput.value || 4);
+            clearCustomerForm();
         } else {
             selectedTableDuration.textContent = "Bu masa pasif durumda. İşlem yapılamaz.";
+            clearCustomerForm();
         }
+
+        updateSelectedCustomerInfo();
 
         staffSelectedTableCode.textContent = selectedTable.code;
         staffSelectedTableText.textContent = `${selectedTable.areaName} · ${selectedTable.statusLabel}`;
@@ -195,6 +283,26 @@ document.addEventListener("DOMContentLoaded", function () {
         personCountInput.value = parsedValue;
     }
 
+    async function postJson(url, payload) {
+        const response = await fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || "İşlem sırasında hata oluştu.");
+        }
+
+        return data;
+    }
+
     tableCards.forEach(function (card) {
         card.addEventListener("click", function () {
             selectTable(card);
@@ -236,22 +344,53 @@ document.addEventListener("DOMContentLoaded", function () {
         updatePersonCount(personCountInput.value);
     });
 
-    assignButton.addEventListener("click", function () {
+    assignButton.addEventListener("click", async function () {
         if (!selectedTable || selectedTable.status !== "empty") {
             return;
         }
 
-        alert(`${selectedTable.code} masasına ${personCountInput.value} kişi yönlendirilecek. Bu adımda henüz veritabanına kayıt yapılmıyor.`);
+        const normalText = "Masaya Gönder";
+        setButtonLoading(assignButton, true, "Kaydediliyor...", normalText);
+
+        try {
+            await postJson("/api/tables/assign", {
+                table_id: selectedTable.id,
+                party_size: personCountInput.value,
+                customer_name: customerNameInput.value,
+                customer_phone: customerPhoneInput.value,
+                note: customerNoteInput.value,
+            });
+
+            window.location.reload();
+        } catch (error) {
+            alert(error.message);
+            assignButton.disabled = false;
+            assignButton.textContent = normalText;
+        }
     });
 
-    clearTableButton.addEventListener("click", function () {
+    clearTableButton.addEventListener("click", async function () {
         if (!selectedTable || (selectedTable.status !== "occupied" && selectedTable.status !== "long")) {
             return;
         }
 
-        alert(`${selectedTable.code} masası boşaltılacak. Bu adımda henüz veritabanına kayıt yapılmıyor.`);
+        const normalText = "Masa Boşaldı";
+        setButtonLoading(clearTableButton, true, "Boşaltılıyor...", normalText);
+
+        try {
+            await postJson("/api/tables/clear", {
+                table_id: selectedTable.id,
+            });
+
+            window.location.reload();
+        } catch (error) {
+            alert(error.message);
+            clearTableButton.disabled = false;
+            clearTableButton.textContent = normalText;
+        }
     });
 
     initializeOccupancyBars();
     applyFilters();
+    updateSelectedCustomerInfo();
 });

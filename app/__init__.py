@@ -1,9 +1,16 @@
-from flask import Flask, render_template
+from datetime import timezone
+from zoneinfo import ZoneInfo
+
+from flask import Flask, jsonify, render_template, request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Config, INSTANCE_DIR
 from app.extensions import csrf, db
-from app.models import Area, Table
+from app.models import Area, Table, TableSession, utc_now
+from app.services import assign_table, clear_table
+
+
+DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
 
 
 def create_empty_dashboard_data():
@@ -17,7 +24,90 @@ def create_empty_dashboard_data():
     }
 
 
-def build_table_view_model(table):
+def normalize_datetime_as_utc(value):
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value
+
+
+def format_datetime_for_display(value):
+    normalized_value = normalize_datetime_as_utc(value)
+
+    if normalized_value is None:
+        return "-"
+
+    local_value = normalized_value.astimezone(DISPLAY_TIMEZONE)
+
+    return local_value.strftime("%d.%m.%Y %H:%M")
+
+
+def format_duration_from_minutes(duration_minutes):
+    if duration_minutes is None:
+        return "-"
+
+    if duration_minutes < 1:
+        return "0 dk"
+
+    hours = duration_minutes // 60
+    minutes = duration_minutes % 60
+
+    if hours == 0:
+        return f"{minutes} dk"
+
+    if minutes == 0:
+        return f"{hours} sa"
+
+    return f"{hours} sa {minutes} dk"
+
+
+def calculate_active_duration_text(check_in_at):
+    normalized_check_in_at = normalize_datetime_as_utc(check_in_at)
+
+    if normalized_check_in_at is None:
+        return "-"
+
+    duration_seconds = (utc_now() - normalized_check_in_at).total_seconds()
+    duration_minutes = int(duration_seconds // 60)
+
+    if duration_minutes < 0:
+        duration_minutes = 0
+
+    return format_duration_from_minutes(duration_minutes)
+
+
+def get_active_session_map():
+    active_sessions = TableSession.query.filter_by(
+        status=TableSession.STATUS_ACTIVE,
+    ).all()
+
+    return {
+        active_session.table_id: active_session
+        for active_session in active_sessions
+    }
+
+
+def build_table_view_model(table, active_session=None):
+    customer_count = None
+    party_size = ""
+    customer_name = ""
+    customer_phone = ""
+    note = ""
+    check_in_display = ""
+    duration = "-"
+
+    if active_session is not None:
+        customer_count = active_session.party_size
+        party_size = active_session.party_size
+        customer_name = active_session.customer_name or ""
+        customer_phone = active_session.customer_phone or ""
+        note = active_session.note or ""
+        check_in_display = format_datetime_for_display(active_session.check_in_at)
+        duration = calculate_active_duration_text(active_session.check_in_at)
+
     return {
         "id": table.id,
         "code": table.code,
@@ -25,8 +115,13 @@ def build_table_view_model(table):
         "area_name": table.area.name,
         "capacity": table.capacity,
         "status": table.status,
-        "customer_count": None,
-        "duration": "-",
+        "customer_count": customer_count,
+        "party_size": party_size,
+        "customer_name": customer_name,
+        "customer_phone": customer_phone,
+        "note": note,
+        "check_in_display": check_in_display,
+        "duration": duration,
     }
 
 
@@ -112,10 +207,28 @@ def get_dashboard_context():
         .all()
     )
 
-    tables = [build_table_view_model(table_record) for table_record in table_records]
+    active_session_map = get_active_session_map()
+
+    tables = [
+        build_table_view_model(
+            table_record,
+            active_session_map.get(table_record.id),
+        )
+        for table_record in table_records
+    ]
+
     dashboard_data = calculate_dashboard_data(tables, areas)
 
     return tables, dashboard_data
+
+
+def create_error_response(message, status_code=400):
+    response = {
+        "success": False,
+        "message": message,
+    }
+
+    return jsonify(response), status_code
 
 
 def create_app():
@@ -150,6 +263,69 @@ def create_app():
             tables=tables,
             dashboard_data=dashboard_data,
             database_not_ready=database_not_ready,
+        )
+
+    @app.post("/api/tables/assign")
+    def assign_table_api():
+        payload = request.get_json(silent=True) or {}
+
+        table_id = payload.get("table_id")
+        party_size = payload.get("party_size")
+        customer_name = payload.get("customer_name")
+        customer_phone = payload.get("customer_phone")
+        note = payload.get("note")
+
+        try:
+            table_session = assign_table(
+                table_id=table_id,
+                party_size=party_size,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                note=note,
+                username_snapshot="demo_user",
+                role_snapshot="demo_operator",
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return create_error_response(str(exc), 400)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return create_error_response("Masa atama sırasında veritabanı hatası oluştu.", 500)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Masa atama işlemi tamamlandı.",
+                "table_session_id": table_session.id,
+            }
+        )
+
+    @app.post("/api/tables/clear")
+    def clear_table_api():
+        payload = request.get_json(silent=True) or {}
+
+        table_id = payload.get("table_id")
+
+        try:
+            table_session = clear_table(
+                table_id=table_id,
+                username_snapshot="demo_user",
+                role_snapshot="demo_operator",
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return create_error_response(str(exc), 400)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return create_error_response("Masa boşaltma sırasında veritabanı hatası oluştu.", 500)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Masa boşaltma işlemi tamamlandı.",
+                "table_session_id": table_session.id,
+                "duration_minutes": table_session.duration_minutes,
+            }
         )
 
     return app

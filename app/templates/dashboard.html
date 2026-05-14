@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if database_not_ready %}
+<div class="alert alert-warning rounded-4 shadow-sm mb-4">
+    Veritabanı henüz hazır görünmüyor. Lütfen terminalden <strong>python -m app.seed</strong> komutunu çalıştırın.
+</div>
+{% endif %}
+
 <section class="summary-grid">
     <div class="summary-card">
         <div class="summary-icon summary-icon-blue">▦</div>
@@ -139,6 +145,7 @@
                     class="table-card table-card-{{ table.status }}"
                     type="button"
                     data-table-card
+                    data-table-id="{{ table.id }}"
                     data-code="{{ table.code }}"
                     data-area-key="{{ table.area_key }}"
                     data-area-name="{{ table.area_name }}"
@@ -146,6 +153,11 @@
                     data-status="{{ table.status }}"
                     data-status-label="{{ status_label }}"
                     data-duration="{{ table.duration }}"
+                    data-party-size="{{ table.party_size }}"
+                    data-customer-name="{{ table.customer_name }}"
+                    data-customer-phone="{{ table.customer_phone }}"
+                    data-note="{{ table.note }}"
+                    data-check-in-display="{{ table.check_in_display }}"
                 >
                     <div class="table-card-top">
                         <strong>{{ table.code }}</strong>
@@ -167,7 +179,7 @@
 
                     {% if table.status in ["occupied", "long"] %}
                     <div class="table-card-time">
-                        {{ table.duration }}
+                        {{ table.party_size }} kişi · {{ table.duration }}
                     </div>
                     {% endif %}
                 </button>
@@ -194,6 +206,35 @@
             <div id="selectedTableDuration" class="selected-table-duration">
                 Masa seçildiğinde süre bilgisi burada görünecek.
             </div>
+
+            <div id="selectedCustomerInfo" class="selected-customer-info">
+                <h3>Aktif Müşteri Bilgisi</h3>
+
+                <div class="customer-info-row">
+                    <span>Kişi Sayısı</span>
+                    <strong id="selectedPartySizeText">-</strong>
+                </div>
+
+                <div class="customer-info-row">
+                    <span>Müşteri</span>
+                    <strong id="selectedCustomerNameText">-</strong>
+                </div>
+
+                <div class="customer-info-row">
+                    <span>Telefon</span>
+                    <strong id="selectedCustomerPhoneText">-</strong>
+                </div>
+
+                <div class="customer-info-row">
+                    <span>Giriş</span>
+                    <strong id="selectedCheckInText">-</strong>
+                </div>
+
+                <div class="customer-info-note">
+                    <span>Not</span>
+                    <p id="selectedCustomerNoteText">-</p>
+                </div>
+            </div>
         </div>
 
         <div class="assignment-form">
@@ -205,13 +246,13 @@
             </div>
 
             <label>Müşteri Adı</label>
-            <input type="text" class="form-control" placeholder="Ad Soyad">
+            <input id="customerNameInput" type="text" class="form-control" placeholder="Ad Soyad">
 
             <label>Telefon</label>
-            <input type="text" class="form-control" placeholder="5XX XXX XX XX">
+            <input id="customerPhoneInput" type="text" class="form-control" placeholder="5XX XXX XX XX">
 
             <label>Not</label>
-            <textarea class="form-control" rows="4" placeholder="Not ekleyin..."></textarea>
+            <textarea id="customerNoteInput" class="form-control" rows="4" placeholder="Not ekleyin..."></textarea>
 
             <button id="assignButton" class="btn assign-button" type="button" disabled>
                 Önce Boş Masa Seç
