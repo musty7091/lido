@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="summary-grid">
+    <div class="summary-card">
+        <div class="summary-icon summary-icon-blue">▦</div>
+        <div>
+            <span>Toplam Masa</span>
+            <strong>{{ dashboard_data.total_tables }}</strong>
+            <small>Tüm Alanlar</small>
+        </div>
+    </div>
+
+    <div class="summary-card">
+        <div class="summary-icon summary-icon-red">●</div>
+        <div>
+            <span>Dolu</span>
+            <strong>{{ dashboard_data.occupied_tables }}</strong>
+            <small>%{{ dashboard_data.general_occupancy_rate }}</small>
+        </div>
+    </div>
+
+    <div class="summary-card">
+        <div class="summary-icon summary-icon-green">●</div>
+        <div>
+            <span>Boş</span>
+            <strong>{{ dashboard_data.empty_tables }}</strong>
+            <small>Kullanılabilir</small>
+        </div>
+    </div>
+
+    <div class="summary-card">
+        <div class="circle-progress">
+            <span>%{{ dashboard_data.general_occupancy_rate }}</span>
+        </div>
+        <div>
+            <span>Genel Doluluk</span>
+            <strong>%{{ dashboard_data.general_occupancy_rate }}</strong>
+            <small>Canlı takip</small>
+        </div>
+    </div>
+</section>
+
+<section class="area-grid">
+    {% for area in dashboard_data.area_cards %}
+    <div class="area-card">
+        <div class="area-title">
+            <div class="area-icon">▣</div>
+            <h2>{{ area.name }}</h2>
+        </div>
+
+        <div class="area-numbers">
+            <div>
+                <span>Toplam</span>
+                <strong>{{ area.total }}</strong>
+            </div>
+            <div>
+                <span>Dolu</span>
+                <strong class="text-danger">{{ area.occupied }}</strong>
+            </div>
+            <div>
+                <span>Boş</span>
+                <strong class="text-success">{{ area.empty }}</strong>
+            </div>
+        </div>
+
+        <div class="progress area-progress" role="progressbar" aria-label="{{ area.name }} doluluk">
+            <div class="progress-bar" style="width: {{ area.occupancy_rate }}%"></div>
+        </div>
+
+        <div class="area-rate">
+            %{{ area.occupancy_rate }}
+        </div>
+    </div>
+    {% endfor %}
+</section>
+
+<section class="main-dashboard-grid">
+    <div class="table-panel">
+        <div class="filter-row">
+            <div class="search-box">
+                <input type="text" class="form-control" placeholder="Masa numarası ara...">
+            </div>
+
+            <select class="form-select">
+                <option>Alan: Tümü</option>
+                <option>Alt Bar</option>
+                <option>Üst Bar</option>
+                <option>Ana Bar</option>
+            </select>
+
+            <select class="form-select">
+                <option>Kapasite: Tümü</option>
+                <option>2 kişilik</option>
+                <option>4 kişilik</option>
+                <option>6 kişilik</option>
+            </select>
+
+            <select class="form-select">
+                <option>Durum: Tümü</option>
+                <option>Boş</option>
+                <option>Dolu</option>
+                <option>Uzun Süreli</option>
+                <option>Pasif</option>
+            </select>
+
+            <button class="btn btn-light filter-clear-button" type="button">
+                Filtreyi Temizle
+            </button>
+        </div>
+
+        <div class="table-panel-header">
+            <h2>Tüm Masalar</h2>
+
+            <div class="status-legend">
+                <span><i class="legend-dot empty"></i>Boş</span>
+                <span><i class="legend-dot occupied"></i>Dolu</span>
+                <span><i class="legend-dot long"></i>Uzun Süreli</span>
+                <span><i class="legend-dot inactive"></i>Pasif</span>
+            </div>
+        </div>
+
+        <div class="table-grid">
+            {% for table in tables %}
+            <button class="table-card table-card-{{ table.status }}" type="button">
+                <div class="table-card-top">
+                    <strong>{{ table.code }}</strong>
+
+                    {% if table.status == "empty" %}
+                    <span>Boş</span>
+                    {% elif table.status == "occupied" %}
+                    <span>Dolu</span>
+                    {% elif table.status == "long" %}
+                    <span>Uzun</span>
+                    {% else %}
+                    <span>Pasif</span>
+                    {% endif %}
+                </div>
+
+                <div class="table-card-detail">
+                    {{ table.capacity }} kişilik
+                </div>
+
+                {% if table.status in ["occupied", "long"] %}
+                <div class="table-card-time">
+                    {{ table.duration }}
+                </div>
+                {% endif %}
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <aside class="assignment-panel">
+        <div class="assignment-title">
+            <h2>Masa Atama</h2>
+        </div>
+
+        <div class="selected-table-box">
+            <span>Seçili Masa</span>
+            <div class="selected-table-content">
+                <strong>A2</strong>
+                <div>
+                    <p>4 kişilik · Alt Bar</p>
+                    <small>Boş</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="assignment-form">
+            <label>Kişi Sayısı</label>
+            <div class="person-counter">
+                <button type="button">-</button>
+                <input type="text" value="4">
+                <button type="button">+</button>
+            </div>
+
+            <label>Müşteri Adı</label>
+            <input type="text" class="form-control" placeholder="Ad Soyad">
+
+            <label>Telefon</label>
+            <input type="text" class="form-control" placeholder="5XX XXX XX XX">
+
+            <label>Not</label>
+            <textarea class="form-control" rows="4" placeholder="Not ekleyin..."></textarea>
+
+            <button class="btn assign-button" type="button">
+                Masaya Gönder
+            </button>
+        </div>
+
+        <div class="recommended-box">
+            <h3>Önerilen Masalar</h3>
+            <p>4 kişilik müşteri için uygun boş masalar</p>
+
+            <div class="recommended-grid">
+                {% for table in dashboard_data.recommended_tables %}
+                <button type="button">
+                    <strong>{{ table.code }}</strong>
+                    <span>{{ table.capacity }} kişilik</span>
+                    <small>{{ table.area_name }}</small>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </aside>
+</section>
+
+<section class="bottom-actions">
+    <div class="staff-card">
+        <h2>Bar Personeli</h2>
+        <p>Bar personeli tüm alanları görebilir, yönlendirme yapabilir ve masa boşaltabilir.</p>
+        <button type="button" class="btn btn-outline-primary">
+            Masa Boşaldı
+        </button>
+    </div>
+
+    <div class="bottom-tabs">
+        <button type="button" class="active">Masa Durumu</button>
+        <button type="button">Geçmiş İşlemler</button>
+        <button type="button">Raporlar</button>
+        <button type="button">Ayarlar</button>
+    </div>
+</section>
+{% endblock %}
