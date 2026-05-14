@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="admin-page-header py-3">
+    <div>
+        <h2>Masa Yönetimi</h2>
+        <p class="mb-0">
+            Alanları oluşturun, düzenleyin, pasifleştirin, silin ve masaları yönetin.
+        </p>
+    </div>
+</section>
+
+<section class="area-grid">
+    {% for area in area_summaries %}
+    <div class="area-card {% if not area.is_active %}opacity-75{% endif %}">
+        <div class="area-title">
+            <div class="area-icon">{{ area.prefix }}</div>
+            <h2>{{ area.name }}</h2>
+        </div>
+
+        <div class="area-numbers">
+            <div>
+                <span>Tanımlı</span>
+                <strong>{{ area.table_count }}</strong>
+            </div>
+            <div>
+                <span>Aktif Masa</span>
+                <strong class="text-success">{{ area.active_table_count }}</strong>
+            </div>
+            <div>
+                <span>Pasif Masa</span>
+                <strong class="text-muted">{{ area.inactive_table_count }}</strong>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <a
+                href="{{ url_for('admin.tables', area=area.slug) }}"
+                class="btn btn-sm {% if selected_area_slug == area.slug %}btn-primary{% else %}btn-outline-primary{% endif %} rounded-3"
+            >
+                Bu Alanı Göster
+            </a>
+
+            <button
+                class="btn btn-sm btn-outline-secondary rounded-3"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#editArea{{ area.id }}"
+                aria-expanded="false"
+                aria-controls="editArea{{ area.id }}"
+            >
+                Düzenle
+            </button>
+
+            <form method="post" action="{{ url_for('admin.toggle_area_active', area_id=area.id) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                {% if area.is_active %}
+                <button type="submit" class="btn btn-sm btn-outline-warning rounded-3">
+                    Pasifleştir
+                </button>
+                {% else %}
+                <button type="submit" class="btn btn-sm btn-outline-success rounded-3">
+                    Aktif Et
+                </button>
+                {% endif %}
+            </form>
+
+            <form method="post" action="{{ url_for('admin.delete_area', area_id=area.id) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                {% if area.can_delete %}
+                <button
+                    type="submit"
+                    class="btn btn-sm btn-outline-danger rounded-3"
+                    onclick="return confirm('{{ area.name }} alanı ve altındaki masalar kalıcı olarak silinecek. Onaylıyor musunuz?')"
+                >
+                    Sil
+                </button>
+                {% else %}
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary rounded-3"
+                    disabled
+                    title="Müşteri geçmişi veya dolu masa bulunan alan silinemez."
+                >
+                    Silinemez
+                </button>
+                {% endif %}
+            </form>
+        </div>
+
+        <div class="collapse mt-3" id="editArea{{ area.id }}">
+            <div class="card card-body border-0 rounded-4 bg-light">
+                <form method="post" action="{{ url_for('admin.update_area', area_id=area.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Alan Adı</label>
+                            <input
+                                type="text"
+                                name="area_name"
+                                class="form-control rounded-3"
+                                value="{{ area.name }}"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label fw-semibold">Prefix</label>
+                            <input
+                                type="text"
+                                name="prefix"
+                                class="form-control rounded-3"
+                                value="{{ area.prefix }}"
+                                maxlength="5"
+                                {% if not area.can_change_prefix %}readonly{% endif %}
+                                required
+                            >
+
+                            {% if not area.can_change_prefix %}
+                            <div class="form-text">
+                                Altında masa bulunan alanın prefix değeri değiştirilemez.
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label fw-semibold">Sıralama</label>
+                            <input
+                                type="number"
+                                name="display_order"
+                                class="form-control rounded-3"
+                                value="{{ area.display_order }}"
+                                min="1"
+                                max="999"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label fw-semibold">Durum</label>
+                            <select name="is_active" class="form-select rounded-3" required>
+                                <option value="1" {% if area.is_active %}selected{% endif %}>Aktif</option>
+                                <option value="0" {% if not area.is_active %}selected{% endif %}>Pasif</option>
+                            </select>
+
+                            {% if area.occupied_table_count > 0 %}
+                            <div class="form-text">
+                                Dolu masa bulunduğu için pasifleştirme engellenir.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary rounded-3 fw-bold mt-3">
+                        Alanı Güncelle
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {% if not area.can_delete %}
+        <div class="small text-muted mt-3">
+            Kalıcı silme için dolu masa ve müşteri geçmişi olmamalıdır.
+            Müşteri geçmişi: {{ area.session_count }}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</section>
+
+<section class="admin-users-grid">
+    <div class="admin-form-card">
+        <div class="admin-card-title">
+            <h3>Yeni Alan Oluştur</h3>
+            <p>Yeni bir alan oluşturup isterseniz başlangıç masalarını otomatik üretebilirsiniz.</p>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.tables', area=selected_area_slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_action" value="create_area">
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Alan Adı</label>
+                <input
+                    type="text"
+                    name="area_name"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ area_form_values.name }}"
+                    placeholder="Bahçe Bar"
+                    autocomplete="off"
+                    required
+                >
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Prefix</label>
+                <input
+                    type="text"
+                    name="prefix"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ area_form_values.prefix }}"
+                    placeholder="B"
+                    autocomplete="off"
+                    maxlength="5"
+                    required
+                >
+                <div class="form-text">
+                    Masa kodlarının başına gelir. Örnek: B1, B2, B3.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Sıralama</label>
+                <input
+                    type="number"
+                    name="display_order"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ area_form_values.display_order }}"
+                    min="1"
+                    max="999"
+                    required
+                >
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Başlangıç Masa Adedi</label>
+                <input
+                    type="number"
+                    name="initial_table_count"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ area_form_values.initial_table_count }}"
+                    min="0"
+                    max="500"
+                    required
+                >
+                <div class="form-text">
+                    0 girerseniz sadece alan oluşur, masa oluşmaz.
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Varsayılan Kapasite</label>
+                <input
+                    type="number"
+                    name="default_capacity"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ area_form_values.default_capacity }}"
+                    min="1"
+                    max="50"
+                    required
+                >
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg w-100 rounded-3 fw-bold">
+                Alan Oluştur
+            </button>
+        </form>
+
+        <hr class="my-4">
+
+        <div class="admin-card-title">
+            <h3>Yeni Masa Oluştur</h3>
+            <p>Seçilen alana tekil masa ekleyin. Örnek: Alt Bar için A101.</p>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.tables', area=selected_area_slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_action" value="create_table">
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Alan</label>
+                <select name="area_id" class="form-select form-select-lg rounded-3" required>
+                    {% for area in active_areas %}
+                    <option
+                        value="{{ area.id }}"
+                        {% if table_form_values.area_id == area.id|string %}selected{% endif %}
+                    >
+                        {{ area.name }} / Prefix: {{ area.prefix }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">
+                    Sadece aktif alanlara yeni masa eklenebilir.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Masa Kodu</label>
+                <input
+                    type="text"
+                    name="code"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ table_form_values.code }}"
+                    placeholder="{% if selected_area %}{{ selected_area.prefix }}101{% else %}A101{% endif %}"
+                    autocomplete="off"
+                    required
+                >
+                <div class="form-text">
+                    Kod alan prefix'i ile başlamalıdır. Örnek: A101, U61, M51.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Kapasite</label>
+                <input
+                    type="number"
+                    name="capacity"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ table_form_values.capacity }}"
+                    min="1"
+                    max="50"
+                    required
+                >
+                <div class="form-text">
+                    Kapasite 1 ile 50 arasında olabilir.
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Başlangıç Durumu</label>
+                <select name="status" class="form-select form-select-lg rounded-3" required>
+                    {% for status in status_choices %}
+                    <option
+                        value="{{ status.value }}"
+                        {% if table_form_values.status == status.value %}selected{% endif %}
+                    >
+                        {{ status.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-outline-primary btn-lg w-100 rounded-3 fw-bold">
+                Masa Oluştur
+            </button>
+        </form>
+    </div>
+
+    <div class="admin-list-card">
+        <div class="admin-card-title">
+            <h3>
+                {% if selected_area %}
+                {{ selected_area.name }} Masaları
+                {% else %}
+                Masalar
+                {% endif %}
+            </h3>
+            <p>Kapasite serbest sayı olarak düzenlenebilir. Dolu masa pasif yapılamaz.</p>
+        </div>
+
+        <div class="admin-user-list">
+            {% for table in tables %}
+            <div class="border rounded-4 bg-light p-3">
+                <div class="admin-user-row border-0 bg-transparent p-0">
+                    <div class="admin-user-avatar">
+                        {{ table.code[:1] }}
+                    </div>
+
+                    <div class="admin-user-main">
+                        <strong>{{ table.code }}</strong>
+                        <span>{{ table.area_name }} · {{ table.capacity }} kişilik</span>
+                    </div>
+
+                    <div class="admin-user-meta">
+                        {% if table.status == "empty" %}
+                        <span class="admin-status-active">Boş</span>
+                        {% elif table.status == "occupied" %}
+                        <span class="admin-status-passive">Dolu</span>
+                        {% elif table.status == "long" %}
+                        <span class="admin-default-password">Uzun Süreli</span>
+                        {% else %}
+                        <span class="admin-status-passive">Pasif</span>
+                        {% endif %}
+
+                        {% if table.is_busy %}
+                        <small class="admin-default-password">İşlemde</small>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="collapse mt-3 show" id="editTable{{ table.id }}">
+                    <div class="card card-body border-0 rounded-4">
+                        <form method="post" action="{{ url_for('admin.update_table', table_id=table.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                            <div class="row g-3 align-items-end">
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label fw-semibold">Kapasite</label>
+                                    <input
+                                        type="number"
+                                        name="capacity"
+                                        class="form-control rounded-3"
+                                        value="{{ table.capacity }}"
+                                        min="1"
+                                        max="50"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label fw-semibold">Durum</label>
+
+                                    {% if table.is_busy %}
+                                    <input type="hidden" name="status" value="{{ table.status }}">
+                                    <select class="form-select rounded-3" disabled>
+                                        <option selected>{{ table.status_label }}</option>
+                                    </select>
+                                    <div class="form-text">
+                                        Dolu masa pasif yapılamaz.
+                                    </div>
+                                    {% else %}
+                                    <select name="status" class="form-select rounded-3" required>
+                                        {% for status in status_choices %}
+                                        <option
+                                            value="{{ status.value }}"
+                                            {% if table.status == status.value %}selected{% endif %}
+                                        >
+                                            {{ status.label }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% endif %}
+                                </div>
+
+                                <div class="col-12 col-lg-4">
+                                    <button type="submit" class="btn btn-primary rounded-3 fw-bold w-100">
+                                        Güncelle
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="admin-empty-state">
+                Bu alanda henüz masa bulunmuyor.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}

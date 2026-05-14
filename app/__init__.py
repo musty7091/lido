@@ -201,6 +201,7 @@ def get_dashboard_context():
 
     table_records = (
         Table.query.join(Area)
+        .filter(Area.is_active.is_(True))
         .order_by(Area.display_order.asc(), Table.sort_order.asc())
         .all()
     )
