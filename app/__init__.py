@@ -10,6 +10,7 @@ from app.auth import auth_bp
 from app.config import Config, INSTANCE_DIR
 from app.extensions import csrf, db, login_manager
 from app.models import Area, Table, TableSession, User, utc_now
+from app.permissions import staff_required
 from app.services import assign_table, clear_table, transfer_table
 
 
@@ -185,19 +186,13 @@ def calculate_dashboard_data(tables, areas):
             }
         )
 
-    recommended_tables = [
-        table
-        for table in tables
-        if table["status"] == Table.STATUS_EMPTY and table["capacity"] >= 4
-    ][:6]
-
     return {
         "total_tables": total_active,
         "occupied_tables": occupied_count,
         "empty_tables": empty_count,
         "general_occupancy_rate": general_occupancy_rate,
         "area_cards": area_cards,
-        "recommended_tables": recommended_tables,
+        "recommended_tables": [],
     }
 
 
@@ -322,7 +317,7 @@ def create_app():
         )
 
     @app.post("/api/tables/assign")
-    @login_required
+    @staff_required
     def assign_table_api():
         payload = request.get_json(silent=True) or {}
 
@@ -359,7 +354,7 @@ def create_app():
         )
 
     @app.post("/api/tables/clear")
-    @login_required
+    @staff_required
     def clear_table_api():
         payload = request.get_json(silent=True) or {}
 
@@ -389,7 +384,7 @@ def create_app():
         )
 
     @app.post("/api/tables/transfer")
-    @login_required
+    @staff_required
     def transfer_table_api():
         payload = request.get_json(silent=True) or {}
 
