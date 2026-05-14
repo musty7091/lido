@@ -73,6 +73,18 @@
                             </div>
                         </div>
 
+                        {% if current_user.role == "admin" %}
+                        <div class="profile-menu-divider"></div>
+
+                        <a class="profile-menu-item" href="{{ url_for('admin.users') }}">
+                            <span>👥</span>
+                            <div>
+                                <strong>Kullanıcı Yönetimi</strong>
+                                <small>Personel hesapları oluştur</small>
+                            </div>
+                        </a>
+                        {% endif %}
+
                         <div class="profile-menu-divider"></div>
 
                         <a class="profile-menu-item" href="{{ url_for('auth.change_password') }}">
