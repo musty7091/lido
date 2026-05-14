@@ -258,25 +258,6 @@
                 Önce Boş Masa Seç
             </button>
         </div>
-
-        <div class="recommended-box">
-            <h3>Önerilen Masalar</h3>
-            <p>4 kişilik müşteri için uygun boş masalar</p>
-
-            <div class="recommended-grid">
-                {% for table in dashboard_data.recommended_tables %}
-                <button
-                    type="button"
-                    data-recommended-table
-                    data-code="{{ table.code }}"
-                >
-                    <strong>{{ table.code }}</strong>
-                    <span>{{ table.capacity }} kişilik</span>
-                    <small>{{ table.area_name }}</small>
-                </button>
-                {% endfor %}
-            </div>
-        </div>
     </aside>
 </section>
 

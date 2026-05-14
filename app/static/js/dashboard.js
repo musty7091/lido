@@ -1,6 +1,5 @@
 document.addEventListener("DOMContentLoaded", function () {
     const tableCards = Array.from(document.querySelectorAll("[data-table-card]"));
-    const recommendedButtons = Array.from(document.querySelectorAll("[data-recommended-table]"));
     const occupancyBars = Array.from(document.querySelectorAll("[data-occupancy-rate]"));
 
     const csrfTokenElement = document.querySelector("meta[name='csrf-token']");
@@ -89,12 +88,6 @@ document.addEventListener("DOMContentLoaded", function () {
             "status-long",
             "status-inactive"
         );
-    }
-
-    function findTableCardByCode(code) {
-        return tableCards.find(function (card) {
-            return card.dataset.code === code;
-        });
     }
 
     function valueOrDash(value) {
@@ -191,9 +184,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (selectedTable.status === "occupied" || selectedTable.status === "long") {
             selectedTableDuration.textContent = `Masada kalma süresi: ${selectedTable.duration}`;
+
             if (selectedTable.partySize) {
                 personCountInput.value = selectedTable.partySize;
             }
+
             fillCustomerFormFromSelectedTable();
         } else if (selectedTable.status === "empty") {
             selectedTableDuration.textContent = "Bu masa boş. Müşteri ataması yapılabilir.";
@@ -306,21 +301,6 @@ document.addEventListener("DOMContentLoaded", function () {
     tableCards.forEach(function (card) {
         card.addEventListener("click", function () {
             selectTable(card);
-        });
-    });
-
-    recommendedButtons.forEach(function (button) {
-        button.addEventListener("click", function () {
-            const tableCode = button.dataset.code;
-            const matchingCard = findTableCardByCode(tableCode);
-
-            if (matchingCard) {
-                selectTable(matchingCard);
-                matchingCard.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center",
-                });
-            }
         });
     });
 
