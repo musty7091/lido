@@ -79,38 +79,41 @@
     <div class="table-panel">
         <div class="filter-row">
             <div class="search-box">
-                <input type="text" class="form-control" placeholder="Masa numarası ara...">
+                <input id="tableSearchInput" type="text" class="form-control" placeholder="Masa numarası ara...">
             </div>
 
-            <select class="form-select">
-                <option>Alan: Tümü</option>
-                <option>Alt Bar</option>
-                <option>Üst Bar</option>
-                <option>Ana Bar</option>
+            <select id="areaFilter" class="form-select">
+                <option value="all">Alan: Tümü</option>
+                <option value="alt">Alt Bar</option>
+                <option value="ust">Üst Bar</option>
+                <option value="ana">Ana Bar</option>
             </select>
 
-            <select class="form-select">
-                <option>Kapasite: Tümü</option>
-                <option>2 kişilik</option>
-                <option>4 kişilik</option>
-                <option>6 kişilik</option>
+            <select id="capacityFilter" class="form-select">
+                <option value="all">Kapasite: Tümü</option>
+                <option value="2">2 kişilik</option>
+                <option value="4">4 kişilik</option>
+                <option value="6">6 kişilik</option>
             </select>
 
-            <select class="form-select">
-                <option>Durum: Tümü</option>
-                <option>Boş</option>
-                <option>Dolu</option>
-                <option>Uzun Süreli</option>
-                <option>Pasif</option>
+            <select id="statusFilter" class="form-select">
+                <option value="all">Durum: Tümü</option>
+                <option value="empty">Boş</option>
+                <option value="occupied">Dolu</option>
+                <option value="long">Uzun Süreli</option>
+                <option value="inactive">Pasif</option>
             </select>
 
-            <button class="btn btn-light filter-clear-button" type="button">
+            <button id="clearFiltersButton" class="btn btn-light filter-clear-button" type="button">
                 Filtreyi Temizle
             </button>
         </div>
 
         <div class="table-panel-header">
-            <h2>Tüm Masalar</h2>
+            <div>
+                <h2>Tüm Masalar</h2>
+                <small id="visibleTableCount" class="visible-count-text">Gösterilen masa sayısı hesaplanıyor...</small>
+            </div>
 
             <div class="status-legend">
                 <span><i class="legend-dot empty"></i>Boş</span>
@@ -122,31 +125,52 @@
 
         <div class="table-grid">
             {% for table in tables %}
-            <button class="table-card table-card-{{ table.status }}" type="button">
-                <div class="table-card-top">
-                    <strong>{{ table.code }}</strong>
-
-                    {% if table.status == "empty" %}
-                    <span>Boş</span>
-                    {% elif table.status == "occupied" %}
-                    <span>Dolu</span>
-                    {% elif table.status == "long" %}
-                    <span>Uzun</span>
-                    {% else %}
-                    <span>Pasif</span>
-                    {% endif %}
-                </div>
-
-                <div class="table-card-detail">
-                    {{ table.capacity }} kişilik
-                </div>
-
-                {% if table.status in ["occupied", "long"] %}
-                <div class="table-card-time">
-                    {{ table.duration }}
-                </div>
+                {% if table.status == "empty" %}
+                    {% set status_label = "Boş" %}
+                {% elif table.status == "occupied" %}
+                    {% set status_label = "Dolu" %}
+                {% elif table.status == "long" %}
+                    {% set status_label = "Uzun Süreli" %}
+                {% else %}
+                    {% set status_label = "Pasif" %}
                 {% endif %}
-            </button>
+
+                <button
+                    class="table-card table-card-{{ table.status }}"
+                    type="button"
+                    data-table-card
+                    data-code="{{ table.code }}"
+                    data-area-key="{{ table.area_key }}"
+                    data-area-name="{{ table.area_name }}"
+                    data-capacity="{{ table.capacity }}"
+                    data-status="{{ table.status }}"
+                    data-status-label="{{ status_label }}"
+                    data-duration="{{ table.duration }}"
+                >
+                    <div class="table-card-top">
+                        <strong>{{ table.code }}</strong>
+
+                        {% if table.status == "empty" %}
+                        <span>Boş</span>
+                        {% elif table.status == "occupied" %}
+                        <span>Dolu</span>
+                        {% elif table.status == "long" %}
+                        <span>Uzun</span>
+                        {% else %}
+                        <span>Pasif</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="table-card-detail">
+                        {{ table.capacity }} kişilik
+                    </div>
+
+                    {% if table.status in ["occupied", "long"] %}
+                    <div class="table-card-time">
+                        {{ table.duration }}
+                    </div>
+                    {% endif %}
+                </button>
             {% endfor %}
         </div>
     </div>
@@ -158,21 +182,26 @@
 
         <div class="selected-table-box">
             <span>Seçili Masa</span>
+
             <div class="selected-table-content">
-                <strong>A2</strong>
+                <strong id="selectedTableCode">-</strong>
                 <div>
-                    <p>4 kişilik · Alt Bar</p>
-                    <small>Boş</small>
+                    <p id="selectedTableDescription">Henüz masa seçilmedi</p>
+                    <small id="selectedTableStatus" class="selected-status-badge status-neutral">Bekliyor</small>
                 </div>
+            </div>
+
+            <div id="selectedTableDuration" class="selected-table-duration">
+                Masa seçildiğinde süre bilgisi burada görünecek.
             </div>
         </div>
 
         <div class="assignment-form">
             <label>Kişi Sayısı</label>
             <div class="person-counter">
-                <button type="button">-</button>
-                <input type="text" value="4">
-                <button type="button">+</button>
+                <button id="decreasePersonButton" type="button">-</button>
+                <input id="personCountInput" type="text" value="4">
+                <button id="increasePersonButton" type="button">+</button>
             </div>
 
             <label>Müşteri Adı</label>
@@ -184,8 +213,8 @@
             <label>Not</label>
             <textarea class="form-control" rows="4" placeholder="Not ekleyin..."></textarea>
 
-            <button class="btn assign-button" type="button">
-                Masaya Gönder
+            <button id="assignButton" class="btn assign-button" type="button" disabled>
+                Önce Boş Masa Seç
             </button>
         </div>
 
@@ -195,7 +224,11 @@
 
             <div class="recommended-grid">
                 {% for table in dashboard_data.recommended_tables %}
-                <button type="button">
+                <button
+                    type="button"
+                    data-recommended-table
+                    data-code="{{ table.code }}"
+                >
                     <strong>{{ table.code }}</strong>
                     <span>{{ table.capacity }} kişilik</span>
                     <small>{{ table.area_name }}</small>
@@ -210,7 +243,13 @@
     <div class="staff-card">
         <h2>Bar Personeli</h2>
         <p>Bar personeli tüm alanları görebilir, yönlendirme yapabilir ve masa boşaltabilir.</p>
-        <button type="button" class="btn btn-outline-primary">
+
+        <div class="staff-selected-info">
+            <strong id="staffSelectedTableCode">-</strong>
+            <span id="staffSelectedTableText">Henüz masa seçilmedi</span>
+        </div>
+
+        <button id="clearTableButton" type="button" class="btn btn-outline-primary" disabled>
             Masa Boşaldı
         </button>
     </div>
@@ -222,4 +261,8 @@
         <button type="button">Ayarlar</button>
     </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}
