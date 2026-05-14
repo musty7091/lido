@@ -37,6 +37,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const staffSelectedTableText = document.getElementById("staffSelectedTableText");
     const clearTableButton = document.getElementById("clearTableButton");
 
+    const transferTargetTableSelect = document.getElementById("transferTargetTableSelect");
+    const transferTableButton = document.getElementById("transferTableButton");
+
     let selectedTable = null;
 
     function initializeOccupancyBars() {
@@ -149,6 +152,55 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    function getEmptyTableCardsForTransfer() {
+        return tableCards.filter(function (card) {
+            return card.dataset.status === "empty";
+        });
+    }
+
+    function updateTransferPanel() {
+        transferTargetTableSelect.innerHTML = "";
+
+        if (!selectedTable || (selectedTable.status !== "occupied" && selectedTable.status !== "long")) {
+            transferTargetTableSelect.disabled = true;
+            transferTableButton.disabled = true;
+
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "Önce dolu masa seçin";
+            transferTargetTableSelect.appendChild(option);
+            return;
+        }
+
+        const emptyTableCards = getEmptyTableCardsForTransfer();
+
+        if (emptyTableCards.length === 0) {
+            transferTargetTableSelect.disabled = true;
+            transferTableButton.disabled = true;
+
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "Boş hedef masa yok";
+            transferTargetTableSelect.appendChild(option);
+            return;
+        }
+
+        const placeholderOption = document.createElement("option");
+        placeholderOption.value = "";
+        placeholderOption.textContent = "Hedef boş masa seçin";
+        transferTargetTableSelect.appendChild(placeholderOption);
+
+        emptyTableCards.forEach(function (card) {
+            const option = document.createElement("option");
+            option.value = card.dataset.tableId;
+            option.textContent = `${card.dataset.code} · ${card.dataset.areaName} · ${card.dataset.capacity} kişilik`;
+            transferTargetTableSelect.appendChild(option);
+        });
+
+        transferTargetTableSelect.disabled = false;
+        transferTableButton.disabled = true;
+    }
+
     function selectTable(card) {
         selectedTable = {
             id: card.dataset.tableId,
@@ -217,6 +269,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
             clearTableButton.disabled = true;
         }
+
+        updateTransferPanel();
     }
 
     function applyFilters() {
@@ -324,6 +378,15 @@ document.addEventListener("DOMContentLoaded", function () {
         updatePersonCount(personCountInput.value);
     });
 
+    transferTargetTableSelect.addEventListener("change", function () {
+        if (!selectedTable || (selectedTable.status !== "occupied" && selectedTable.status !== "long")) {
+            transferTableButton.disabled = true;
+            return;
+        }
+
+        transferTableButton.disabled = transferTargetTableSelect.value === "";
+    });
+
     assignButton.addEventListener("click", async function () {
         if (!selectedTable || selectedTable.status !== "empty") {
             return;
@@ -370,7 +433,46 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
+    transferTableButton.addEventListener("click", async function () {
+        if (!selectedTable || (selectedTable.status !== "occupied" && selectedTable.status !== "long")) {
+            return;
+        }
+
+        const targetTableId = transferTargetTableSelect.value;
+
+        if (!targetTableId) {
+            alert("Lütfen hedef boş masa seçin.");
+            return;
+        }
+
+        const selectedTargetOption = transferTargetTableSelect.options[transferTargetTableSelect.selectedIndex];
+        const confirmed = confirm(
+            `${selectedTable.code} masasındaki müşteri ${selectedTargetOption.textContent} masasına transfer edilecek. Onaylıyor musunuz?`
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        const normalText = "Masayı Transfer Et";
+        setButtonLoading(transferTableButton, true, "Transfer ediliyor...", normalText);
+
+        try {
+            await postJson("/api/tables/transfer", {
+                source_table_id: selectedTable.id,
+                target_table_id: targetTableId,
+            });
+
+            window.location.reload();
+        } catch (error) {
+            alert(error.message);
+            transferTableButton.disabled = false;
+            transferTableButton.textContent = normalText;
+        }
+    });
+
     initializeOccupancyBars();
     applyFilters();
     updateSelectedCustomerInfo();
+    updateTransferPanel();
 });

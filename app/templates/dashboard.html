@@ -257,6 +257,22 @@
             <button id="assignButton" class="btn assign-button" type="button" disabled>
                 Önce Boş Masa Seç
             </button>
+
+            <div class="border rounded-4 p-3 mt-3 bg-light">
+                <h3 class="h6 fw-bold mb-2">Masa Transferi</h3>
+                <p class="small text-muted mb-2">
+                    Dolu bir masa seçildiğinde müşteriyi boş başka bir masaya taşıyabilirsiniz.
+                </p>
+
+                <label class="form-label small fw-semibold">Hedef Boş Masa</label>
+                <select id="transferTargetTableSelect" class="form-select rounded-3" disabled>
+                    <option value="">Önce dolu masa seçin</option>
+                </select>
+
+                <button id="transferTableButton" class="btn btn-outline-primary w-100 rounded-3 fw-bold mt-3" type="button" disabled>
+                    Masayı Transfer Et
+                </button>
+            </div>
         </div>
     </aside>
 </section>

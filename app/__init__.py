@@ -5,11 +5,12 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.admin import admin_bp
 from app.auth import auth_bp
 from app.config import Config, INSTANCE_DIR
 from app.extensions import csrf, db, login_manager
 from app.models import Area, Table, TableSession, User, utc_now
-from app.services import assign_table, clear_table
+from app.services import assign_table, clear_table, transfer_table
 
 
 DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
@@ -269,6 +270,7 @@ def create_app():
         return redirect(url_for("auth.login", next=request.full_path))
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
 
     @app.before_request
     def enforce_default_password_change():
@@ -383,6 +385,37 @@ def create_app():
                 "message": "Masa boşaltma işlemi tamamlandı.",
                 "table_session_id": table_session.id,
                 "duration_minutes": table_session.duration_minutes,
+            }
+        )
+
+    @app.post("/api/tables/transfer")
+    @login_required
+    def transfer_table_api():
+        payload = request.get_json(silent=True) or {}
+
+        source_table_id = payload.get("source_table_id")
+        target_table_id = payload.get("target_table_id")
+
+        try:
+            table_session = transfer_table(
+                source_table_id=source_table_id,
+                target_table_id=target_table_id,
+                user_id=current_user.id,
+                username_snapshot=current_user.username,
+                role_snapshot=current_user.role,
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return create_error_response(str(exc), 400)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return create_error_response("Masa transferi sırasında veritabanı hatası oluştu.", 500)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Masa transferi tamamlandı.",
+                "table_session_id": table_session.id,
             }
         )
 

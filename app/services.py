@@ -204,3 +204,89 @@ def clear_table(
     db.session.commit()
 
     return active_session
+
+
+def transfer_table(
+    source_table_id,
+    target_table_id,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    parsed_source_table_id = parse_table_id(source_table_id)
+    parsed_target_table_id = parse_table_id(target_table_id)
+
+    if parsed_source_table_id == parsed_target_table_id:
+        raise ValueError("Aynı masaya transfer yapılamaz.")
+
+    source_table = db.session.get(Table, parsed_source_table_id)
+    target_table = db.session.get(Table, parsed_target_table_id)
+
+    if source_table is None:
+        raise ValueError("Transfer edilecek masa bulunamadı.")
+
+    if target_table is None:
+        raise ValueError("Hedef masa bulunamadı.")
+
+    if source_table.status == Table.STATUS_INACTIVE:
+        raise ValueError("Pasif durumdaki masa transfer edilemez.")
+
+    if target_table.status == Table.STATUS_INACTIVE:
+        raise ValueError("Pasif durumdaki masaya transfer yapılamaz.")
+
+    if source_table.status not in [Table.STATUS_OCCUPIED, Table.STATUS_LONG]:
+        raise ValueError("Sadece dolu masa transfer edilebilir.")
+
+    if target_table.status != Table.STATUS_EMPTY:
+        raise ValueError("Transfer için hedef masa boş olmalıdır.")
+
+    active_session = get_active_session_for_table(source_table.id)
+
+    if active_session is None:
+        raise ValueError("Transfer edilecek masada aktif müşteri oturumu bulunamadı.")
+
+    target_active_session = get_active_session_for_table(target_table.id)
+
+    if target_active_session is not None:
+        raise ValueError("Hedef masa için zaten aktif müşteri oturumu var.")
+
+    old_table_code = source_table.code
+    old_area_name = source_table.area.name
+    new_table_code = target_table.code
+    new_area_name = target_table.area.name
+    transferred_status = source_table.status
+
+    active_session.table_id = target_table.id
+
+    source_table.status = Table.STATUS_EMPTY
+    target_table.status = transferred_status
+
+    log_action(
+        action_type="table_transferred",
+        target_type="table",
+        target_id=target_table.id,
+        target_label=f"{old_table_code} -> {new_table_code}",
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"Müşteri {old_table_code} masasından {new_table_code} masasına transfer edildi."
+        ),
+        extra_data={
+            "old_table_id": source_table.id,
+            "old_table_code": old_table_code,
+            "old_area_name": old_area_name,
+            "new_table_id": target_table.id,
+            "new_table_code": new_table_code,
+            "new_area_name": new_area_name,
+            "table_session_id": active_session.id,
+            "party_size": active_session.party_size,
+            "customer_name": active_session.customer_name,
+            "customer_phone": active_session.customer_phone,
+            "note": active_session.note,
+        },
+    )
+
+    db.session.commit()
+
+    return active_session
