@@ -7,100 +7,64 @@
 </div>
 {% endif %}
 
-<section class="summary-grid">
-    <div class="summary-card">
-        <div class="summary-icon summary-icon-blue">▦</div>
-        <div>
-            <span>Toplam Masa</span>
-            <strong>{{ dashboard_data.total_tables }}</strong>
-            <small>Tüm Alanlar</small>
-        </div>
+<section class="compact-summary-bar">
+    <div class="compact-summary-item">
+        <span>Toplam</span>
+        <strong>{{ dashboard_data.total_tables }}</strong>
     </div>
 
-    <div class="summary-card">
-        <div class="summary-icon summary-icon-red">●</div>
-        <div>
-            <span>Dolu</span>
-            <strong>{{ dashboard_data.occupied_tables }}</strong>
-            <small>%{{ dashboard_data.general_occupancy_rate }}</small>
-        </div>
+    <div class="compact-summary-item">
+        <span>Dolu</span>
+        <strong class="text-danger">{{ dashboard_data.occupied_tables }}</strong>
     </div>
 
-    <div class="summary-card">
-        <div class="summary-icon summary-icon-green">●</div>
-        <div>
-            <span>Boş</span>
-            <strong>{{ dashboard_data.empty_tables }}</strong>
-            <small>Kullanılabilir</small>
-        </div>
+    <div class="compact-summary-item">
+        <span>Boş</span>
+        <strong class="text-success">{{ dashboard_data.empty_tables }}</strong>
     </div>
 
-    <div class="summary-card">
-        <div class="circle-progress">
-            <span>%{{ dashboard_data.general_occupancy_rate }}</span>
-        </div>
-        <div>
-            <span>Genel Doluluk</span>
-            <strong>%{{ dashboard_data.general_occupancy_rate }}</strong>
-            <small>Canlı takip</small>
-        </div>
+    <div class="compact-summary-item">
+        <span>Doluluk</span>
+        <strong>%{{ dashboard_data.general_occupancy_rate }}</strong>
     </div>
 </section>
 
-<section class="area-grid">
+<section class="area-selector">
+    <button
+        class="area-filter-button is-active"
+        type="button"
+        data-area-button
+        data-area-key="all"
+    >
+        <div class="area-filter-title">Tüm Alanlar</div>
+        <div class="area-filter-stats">
+            <span>{{ dashboard_data.total_tables }} masa</span>
+            <strong>%{{ dashboard_data.general_occupancy_rate }}</strong>
+        </div>
+    </button>
+
     {% for area in dashboard_data.area_cards %}
-    <div class="area-card">
-        <div class="area-title">
-            <div class="area-icon">▣</div>
-            <h2>{{ area.name }}</h2>
+    <button
+        class="area-filter-button"
+        type="button"
+        data-area-button
+        data-area-key="{{ area.key }}"
+    >
+        <div class="area-filter-title">{{ area.name }}</div>
+        <div class="area-filter-stats">
+            <span>{{ area.empty }} boş / {{ area.total }} masa</span>
+            <strong>%{{ area.occupancy_rate }}</strong>
         </div>
-
-        <div class="area-numbers">
-            <div>
-                <span>Toplam</span>
-                <strong>{{ area.total }}</strong>
-            </div>
-            <div>
-                <span>Dolu</span>
-                <strong class="text-danger">{{ area.occupied }}</strong>
-            </div>
-            <div>
-                <span>Boş</span>
-                <strong class="text-success">{{ area.empty }}</strong>
-            </div>
-        </div>
-
-        <div class="progress area-progress" role="progressbar" aria-label="{{ area.name }} doluluk">
-            <div class="progress-bar" data-occupancy-rate="{{ area.occupancy_rate }}"></div>
-        </div>
-
-        <div class="area-rate">
-            %{{ area.occupancy_rate }}
-        </div>
-    </div>
+    </button>
     {% endfor %}
 </section>
 
 <section class="main-dashboard-grid">
     <div class="table-panel">
-        <div class="filter-row">
+        <div class="filter-row tablet-filter-row">
             <div class="search-box">
-                <input id="tableSearchInput" type="text" class="form-control" placeholder="Masa numarası ara...">
+                <input id="tableSearchInput" type="text" class="form-control" placeholder="Masa ara... Örn: A12">
             </div>
-
-            <select id="areaFilter" class="form-select">
-                <option value="all">Alan: Tümü</option>
-                <option value="alt">Alt Bar</option>
-                <option value="ust">Üst Bar</option>
-                <option value="ana">Ana Bar</option>
-            </select>
-
-            <select id="capacityFilter" class="form-select">
-                <option value="all">Kapasite: Tümü</option>
-                <option value="2">2 kişilik</option>
-                <option value="4">4 kişilik</option>
-                <option value="6">6 kişilik</option>
-            </select>
 
             <select id="statusFilter" class="form-select">
                 <option value="all">Durum: Tümü</option>
@@ -111,20 +75,20 @@
             </select>
 
             <button id="clearFiltersButton" class="btn btn-light filter-clear-button" type="button">
-                Filtreyi Temizle
+                Temizle
             </button>
         </div>
 
         <div class="table-panel-header">
             <div>
-                <h2>Tüm Masalar</h2>
+                <h2 id="tablePanelTitle">Tüm Masalar</h2>
                 <small id="visibleTableCount" class="visible-count-text">Gösterilen masa sayısı hesaplanıyor...</small>
             </div>
 
             <div class="status-legend">
                 <span><i class="legend-dot empty"></i>Boş</span>
                 <span><i class="legend-dot occupied"></i>Dolu</span>
-                <span><i class="legend-dot long"></i>Uzun Süreli</span>
+                <span><i class="legend-dot long"></i>Uzun</span>
                 <span><i class="legend-dot inactive"></i>Pasif</span>
             </div>
         </div>
@@ -189,7 +153,7 @@
 
     <aside class="assignment-panel">
         <div class="assignment-title">
-            <h2>Masa Atama</h2>
+            <h2>Masa İşlemleri</h2>
         </div>
 
         <div class="selected-table-box">
@@ -204,10 +168,48 @@
             </div>
 
             <div id="selectedTableDuration" class="selected-table-duration">
-                Masa seçildiğinde süre bilgisi burada görünecek.
+                Soldan bir masa seçin.
             </div>
+        </div>
 
-            <div id="selectedCustomerInfo" class="selected-customer-info">
+        <div id="idlePanel" class="panel-section">
+            <div class="operation-message">
+                <h3>İşlem Bekleniyor</h3>
+                <p>
+                    Soldan bir masa seçin. Boş masa seçerseniz müşteri giriş formu açılır.
+                    Dolu masa seçerseniz aktif müşteri bilgileri ve masa işlemleri görünür.
+                </p>
+            </div>
+        </div>
+
+        <div id="emptyTablePanel" class="panel-section is-hidden">
+            <div class="assignment-form">
+                <h3 class="panel-section-title">Müşteri Girişi</h3>
+
+                <label>Kişi Sayısı</label>
+                <div class="person-counter">
+                    <button id="decreasePersonButton" type="button">-</button>
+                    <input id="personCountInput" type="text" value="4">
+                    <button id="increasePersonButton" type="button">+</button>
+                </div>
+
+                <label>Müşteri Adı</label>
+                <input id="customerNameInput" type="text" class="form-control" placeholder="Ad Soyad">
+
+                <label>Telefon</label>
+                <input id="customerPhoneInput" type="text" class="form-control" placeholder="5XX XXX XX XX">
+
+                <label>Not</label>
+                <textarea id="customerNoteInput" class="form-control" rows="3" placeholder="Not ekleyin..."></textarea>
+
+                <button id="assignButton" class="btn assign-button" type="button" disabled>
+                    Önce Boş Masa Seç
+                </button>
+            </div>
+        </div>
+
+        <div id="activeTablePanel" class="panel-section is-hidden">
+            <div class="active-customer-panel">
                 <h3>Aktif Müşteri Bilgisi</h3>
 
                 <div class="customer-info-row">
@@ -235,36 +237,12 @@
                     <p id="selectedCustomerNoteText">-</p>
                 </div>
             </div>
-        </div>
 
-        <div class="assignment-form">
-            <label>Kişi Sayısı</label>
-            <div class="person-counter">
-                <button id="decreasePersonButton" type="button">-</button>
-                <input id="personCountInput" type="text" value="4">
-                <button id="increasePersonButton" type="button">+</button>
-            </div>
+            <div class="operation-box">
+                <h3>Masa Transferi</h3>
+                <p>Dolu masa seçildiğinde müşteriyi başka boş masaya taşıyabilirsiniz.</p>
 
-            <label>Müşteri Adı</label>
-            <input id="customerNameInput" type="text" class="form-control" placeholder="Ad Soyad">
-
-            <label>Telefon</label>
-            <input id="customerPhoneInput" type="text" class="form-control" placeholder="5XX XXX XX XX">
-
-            <label>Not</label>
-            <textarea id="customerNoteInput" class="form-control" rows="4" placeholder="Not ekleyin..."></textarea>
-
-            <button id="assignButton" class="btn assign-button" type="button" disabled>
-                Önce Boş Masa Seç
-            </button>
-
-            <div class="border rounded-4 p-3 mt-3 bg-light">
-                <h3 class="h6 fw-bold mb-2">Masa Transferi</h3>
-                <p class="small text-muted mb-2">
-                    Dolu bir masa seçildiğinde müşteriyi boş başka bir masaya taşıyabilirsiniz.
-                </p>
-
-                <label class="form-label small fw-semibold">Hedef Boş Masa</label>
+                <label>Hedef Boş Masa</label>
                 <select id="transferTargetTableSelect" class="form-select rounded-3" disabled>
                     <option value="">Önce dolu masa seçin</option>
                 </select>
@@ -273,31 +251,22 @@
                     Masayı Transfer Et
                 </button>
             </div>
+
+            <button id="clearTableButton" type="button" class="btn btn-outline-danger w-100 rounded-3 fw-bold mt-3" disabled>
+                Masa Boşaldı
+            </button>
+        </div>
+
+        <div id="inactiveTablePanel" class="panel-section is-hidden">
+            <div class="operation-message operation-message-warning">
+                <h3>Pasif Masa</h3>
+                <p>
+                    Bu masa pasif durumda. Müşteri atama, transfer veya boşaltma işlemi yapılamaz.
+                    Gerekirse yönetici hesabıyla Masa Yönetimi ekranından tekrar aktif hale getirilebilir.
+                </p>
+            </div>
         </div>
     </aside>
-</section>
-
-<section class="bottom-actions">
-    <div class="staff-card">
-        <h2>Bar Personeli</h2>
-        <p>Bar personeli tüm alanları görebilir, yönlendirme yapabilir ve masa boşaltabilir.</p>
-
-        <div class="staff-selected-info">
-            <strong id="staffSelectedTableCode">-</strong>
-            <span id="staffSelectedTableText">Henüz masa seçilmedi</span>
-        </div>
-
-        <button id="clearTableButton" type="button" class="btn btn-outline-primary" disabled>
-            Masa Boşaldı
-        </button>
-    </div>
-
-    <div class="bottom-tabs">
-        <button type="button" class="active">Masa Durumu</button>
-        <button type="button">Geçmiş İşlemler</button>
-        <button type="button">Raporlar</button>
-        <button type="button">Ayarlar</button>
-    </div>
 </section>
 {% endblock %}
 

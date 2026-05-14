@@ -1,23 +1,27 @@
 document.addEventListener("DOMContentLoaded", function () {
     const tableCards = Array.from(document.querySelectorAll("[data-table-card]"));
+    const areaButtons = Array.from(document.querySelectorAll("[data-area-button]"));
     const occupancyBars = Array.from(document.querySelectorAll("[data-occupancy-rate]"));
 
     const csrfTokenElement = document.querySelector("meta[name='csrf-token']");
     const csrfToken = csrfTokenElement ? csrfTokenElement.getAttribute("content") : "";
 
     const tableSearchInput = document.getElementById("tableSearchInput");
-    const areaFilter = document.getElementById("areaFilter");
-    const capacityFilter = document.getElementById("capacityFilter");
     const statusFilter = document.getElementById("statusFilter");
     const clearFiltersButton = document.getElementById("clearFiltersButton");
     const visibleTableCount = document.getElementById("visibleTableCount");
+    const tablePanelTitle = document.getElementById("tablePanelTitle");
 
     const selectedTableCode = document.getElementById("selectedTableCode");
     const selectedTableDescription = document.getElementById("selectedTableDescription");
     const selectedTableStatus = document.getElementById("selectedTableStatus");
     const selectedTableDuration = document.getElementById("selectedTableDuration");
 
-    const selectedCustomerInfo = document.getElementById("selectedCustomerInfo");
+    const idlePanel = document.getElementById("idlePanel");
+    const emptyTablePanel = document.getElementById("emptyTablePanel");
+    const activeTablePanel = document.getElementById("activeTablePanel");
+    const inactiveTablePanel = document.getElementById("inactiveTablePanel");
+
     const selectedPartySizeText = document.getElementById("selectedPartySizeText");
     const selectedCustomerNameText = document.getElementById("selectedCustomerNameText");
     const selectedCustomerPhoneText = document.getElementById("selectedCustomerPhoneText");
@@ -33,14 +37,14 @@ document.addEventListener("DOMContentLoaded", function () {
     const customerPhoneInput = document.getElementById("customerPhoneInput");
     const customerNoteInput = document.getElementById("customerNoteInput");
 
-    const staffSelectedTableCode = document.getElementById("staffSelectedTableCode");
-    const staffSelectedTableText = document.getElementById("staffSelectedTableText");
     const clearTableButton = document.getElementById("clearTableButton");
 
     const transferTargetTableSelect = document.getElementById("transferTargetTableSelect");
     const transferTableButton = document.getElementById("transferTableButton");
 
     let selectedTable = null;
+    let activeAreaKey = "all";
+    let activeAreaName = "Tüm Masalar";
 
     function initializeOccupancyBars() {
         occupancyBars.forEach(function (bar) {
@@ -107,39 +111,53 @@ document.addEventListener("DOMContentLoaded", function () {
         return cleanedValue;
     }
 
+    function hideAllPanels() {
+        idlePanel.classList.add("is-hidden");
+        emptyTablePanel.classList.add("is-hidden");
+        activeTablePanel.classList.add("is-hidden");
+        inactiveTablePanel.classList.add("is-hidden");
+    }
+
+    function showIdlePanel() {
+        hideAllPanels();
+        idlePanel.classList.remove("is-hidden");
+    }
+
+    function showEmptyTablePanel() {
+        hideAllPanels();
+        emptyTablePanel.classList.remove("is-hidden");
+    }
+
+    function showActiveTablePanel() {
+        hideAllPanels();
+        activeTablePanel.classList.remove("is-hidden");
+    }
+
+    function showInactiveTablePanel() {
+        hideAllPanels();
+        inactiveTablePanel.classList.remove("is-hidden");
+    }
+
     function clearCustomerForm() {
         customerNameInput.value = "";
         customerPhoneInput.value = "";
         customerNoteInput.value = "";
     }
 
-    function fillCustomerFormFromSelectedTable() {
-        customerNameInput.value = selectedTable.customerName || "";
-        customerPhoneInput.value = selectedTable.customerPhone || "";
-        customerNoteInput.value = selectedTable.note || "";
-    }
-
-    function updateSelectedCustomerInfo() {
-        const hasActiveCustomer =
-            selectedTable &&
-            (selectedTable.status === "occupied" || selectedTable.status === "long");
-
-        if (!hasActiveCustomer) {
-            selectedCustomerInfo.classList.add("is-passive");
-            selectedPartySizeText.textContent = "-";
-            selectedCustomerNameText.textContent = "-";
-            selectedCustomerPhoneText.textContent = "-";
-            selectedCheckInText.textContent = "-";
-            selectedCustomerNoteText.textContent = "Bu masa boş. Yeni müşteri bilgisi girilebilir.";
-            return;
-        }
-
-        selectedCustomerInfo.classList.remove("is-passive");
+    function fillActiveCustomerInfo() {
         selectedPartySizeText.textContent = valueOrDash(selectedTable.partySize);
         selectedCustomerNameText.textContent = valueOrDash(selectedTable.customerName);
         selectedCustomerPhoneText.textContent = valueOrDash(selectedTable.customerPhone);
         selectedCheckInText.textContent = valueOrDash(selectedTable.checkInDisplay);
         selectedCustomerNoteText.textContent = valueOrDash(selectedTable.note);
+    }
+
+    function clearActiveCustomerInfo() {
+        selectedPartySizeText.textContent = "-";
+        selectedCustomerNameText.textContent = "-";
+        selectedCustomerPhoneText.textContent = "-";
+        selectedCheckInText.textContent = "-";
+        selectedCustomerNoteText.textContent = "-";
     }
 
     function setButtonLoading(button, isLoading, loadingText, normalText) {
@@ -201,6 +219,47 @@ document.addEventListener("DOMContentLoaded", function () {
         transferTableButton.disabled = true;
     }
 
+    function resetSelectedTableView() {
+        selectedTable = null;
+
+        tableCards.forEach(function (tableCard) {
+            tableCard.classList.remove("is-selected");
+        });
+
+        selectedTableCode.textContent = "-";
+        selectedTableDescription.textContent = "Henüz masa seçilmedi";
+        selectedTableStatus.textContent = "Bekliyor";
+        selectedTableDuration.textContent = "Soldan bir masa seçin.";
+
+        clearStatusClasses(selectedTableCode);
+        clearStatusClasses(selectedTableStatus);
+        selectedTableStatus.classList.add("status-neutral");
+
+        assignButton.disabled = true;
+        assignButton.textContent = "Önce Boş Masa Seç";
+
+        clearTableButton.disabled = true;
+
+        clearCustomerForm();
+        clearActiveCustomerInfo();
+        updateTransferPanel();
+        showIdlePanel();
+    }
+
+    function resetSelectedTableIfHidden() {
+        if (!selectedTable) {
+            return;
+        }
+
+        const selectedCard = tableCards.find(function (card) {
+            return card.dataset.tableId === selectedTable.id;
+        });
+
+        if (!selectedCard || selectedCard.classList.contains("is-hidden")) {
+            resetSelectedTableView();
+        }
+    }
+
     function selectTable(card) {
         selectedTable = {
             id: card.dataset.tableId,
@@ -234,49 +293,72 @@ document.addEventListener("DOMContentLoaded", function () {
         selectedTableCode.classList.add(getStatusClass(selectedTable.status));
         selectedTableStatus.classList.add(getStatusClass(selectedTable.status));
 
+        if (selectedTable.status === "empty") {
+            selectedTableDuration.textContent = "Bu masa boş. Müşteri girişi yapılabilir.";
+
+            updatePersonCount(personCountInput.value || 4);
+            clearCustomerForm();
+            clearActiveCustomerInfo();
+
+            assignButton.disabled = false;
+            assignButton.textContent = "Masaya Gönder";
+
+            clearTableButton.disabled = true;
+
+            updateTransferPanel();
+            showEmptyTablePanel();
+            return;
+        }
+
         if (selectedTable.status === "occupied" || selectedTable.status === "long") {
             selectedTableDuration.textContent = `Masada kalma süresi: ${selectedTable.duration}`;
 
-            if (selectedTable.partySize) {
-                personCountInput.value = selectedTable.partySize;
-            }
-
-            fillCustomerFormFromSelectedTable();
-        } else if (selectedTable.status === "empty") {
-            selectedTableDuration.textContent = "Bu masa boş. Müşteri ataması yapılabilir.";
-            updatePersonCount(personCountInput.value || 4);
-            clearCustomerForm();
-        } else {
-            selectedTableDuration.textContent = "Bu masa pasif durumda. İşlem yapılamaz.";
-            clearCustomerForm();
-        }
-
-        updateSelectedCustomerInfo();
-
-        staffSelectedTableCode.textContent = selectedTable.code;
-        staffSelectedTableText.textContent = `${selectedTable.areaName} · ${selectedTable.statusLabel}`;
-
-        if (selectedTable.status === "empty") {
-            assignButton.disabled = false;
-            assignButton.textContent = "Masaya Gönder";
-        } else {
             assignButton.disabled = true;
             assignButton.textContent = "Sadece Boş Masaya Atama Yapılır";
-        }
 
-        if (selectedTable.status === "occupied" || selectedTable.status === "long") {
             clearTableButton.disabled = false;
-        } else {
-            clearTableButton.disabled = true;
+
+            clearCustomerForm();
+            fillActiveCustomerInfo();
+            updateTransferPanel();
+            showActiveTablePanel();
+            return;
         }
 
+        selectedTableDuration.textContent = "Bu masa pasif durumda. İşlem yapılamaz.";
+
+        assignButton.disabled = true;
+        assignButton.textContent = "Önce Boş Masa Seç";
+
+        clearTableButton.disabled = true;
+
+        clearCustomerForm();
+        clearActiveCustomerInfo();
         updateTransferPanel();
+        showInactiveTablePanel();
+    }
+
+    function setActiveArea(button) {
+        activeAreaKey = button.dataset.areaKey;
+        activeAreaName = button.querySelector(".area-filter-title").textContent.trim();
+
+        areaButtons.forEach(function (areaButton) {
+            areaButton.classList.remove("is-active");
+        });
+
+        button.classList.add("is-active");
+
+        if (activeAreaKey === "all") {
+            tablePanelTitle.textContent = "Tüm Masalar";
+        } else {
+            tablePanelTitle.textContent = `${activeAreaName} Masaları`;
+        }
+
+        applyFilters();
     }
 
     function applyFilters() {
         const searchValue = tableSearchInput.value.trim().toLowerCase();
-        const areaValue = areaFilter.value;
-        const capacityValue = capacityFilter.value;
         const statusValue = statusFilter.value;
 
         let visibleCount = 0;
@@ -284,15 +366,13 @@ document.addEventListener("DOMContentLoaded", function () {
         tableCards.forEach(function (card) {
             const code = card.dataset.code.toLowerCase();
             const areaKey = card.dataset.areaKey;
-            const capacity = card.dataset.capacity;
             const status = card.dataset.status;
 
             const searchMatches = searchValue === "" || code.includes(searchValue);
-            const areaMatches = areaValue === "all" || areaKey === areaValue;
-            const capacityMatches = capacityValue === "all" || capacity === capacityValue;
+            const areaMatches = activeAreaKey === "all" || areaKey === activeAreaKey;
             const statusMatches = statusValue === "all" || status === statusValue;
 
-            const isVisible = searchMatches && areaMatches && capacityMatches && statusMatches;
+            const isVisible = searchMatches && areaMatches && statusMatches;
 
             if (isVisible) {
                 card.classList.remove("is-hidden");
@@ -303,15 +383,24 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
         visibleTableCount.textContent = `${visibleCount} masa gösteriliyor`;
+        resetSelectedTableIfHidden();
     }
 
     function clearFilters() {
         tableSearchInput.value = "";
-        areaFilter.value = "all";
-        capacityFilter.value = "all";
         statusFilter.value = "all";
 
-        applyFilters();
+        const allAreaButton = areaButtons.find(function (button) {
+            return button.dataset.areaKey === "all";
+        });
+
+        if (allAreaButton) {
+            setActiveArea(allAreaButton);
+        } else {
+            activeAreaKey = "all";
+            activeAreaName = "Tüm Masalar";
+            applyFilters();
+        }
     }
 
     function updatePersonCount(newValue) {
@@ -358,9 +447,13 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
+    areaButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+            setActiveArea(button);
+        });
+    });
+
     tableSearchInput.addEventListener("input", applyFilters);
-    areaFilter.addEventListener("change", applyFilters);
-    capacityFilter.addEventListener("change", applyFilters);
     statusFilter.addEventListener("change", applyFilters);
     clearFiltersButton.addEventListener("click", clearFilters);
 
@@ -414,6 +507,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     clearTableButton.addEventListener("click", async function () {
         if (!selectedTable || (selectedTable.status !== "occupied" && selectedTable.status !== "long")) {
+            return;
+        }
+
+        const confirmed = confirm(`${selectedTable.code} masası boşaltılacak. Onaylıyor musunuz?`);
+
+        if (!confirmed) {
             return;
         }
 
@@ -473,6 +572,5 @@ document.addEventListener("DOMContentLoaded", function () {
 
     initializeOccupancyBars();
     applyFilters();
-    updateSelectedCustomerInfo();
-    updateTransferPanel();
+    resetSelectedTableView();
 });
