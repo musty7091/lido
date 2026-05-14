@@ -1,12 +1,17 @@
+from datetime import timezone
+from zoneinfo import ZoneInfo
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 
 from app.audit import log_action
 from app.extensions import db
-from app.models import User
+from app.models import ActionLog, User
 from app.permissions import admin_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
 
 
 ROLE_CHOICES = [
@@ -25,11 +30,77 @@ ROLE_CHOICES = [
 ]
 
 
+ACTION_TYPE_LABELS = {
+    "database_seed": "Veritabanı Hazırlama",
+    "login_success": "Giriş Başarılı",
+    "login_failed": "Giriş Başarısız",
+    "login_blocked": "Giriş Engellendi",
+    "logout": "Çıkış",
+    "password_changed": "Şifre Değiştirildi",
+    "user_created": "Kullanıcı Oluşturuldu",
+    "table_assigned": "Masa Atandı",
+    "table_cleared": "Masa Boşaltıldı",
+    "table_transferred": "Masa Transferi",
+}
+
+
+ROLE_LABELS = {
+    User.ROLE_ADMIN: "Yönetici",
+    User.ROLE_DOOR_STAFF: "Kapı Personeli",
+    User.ROLE_BAR_STAFF: "Bar Personeli",
+    "system": "Sistem",
+}
+
+
 def clean_text(value):
     if value is None:
         return ""
 
     return str(value).strip()
+
+
+def normalize_datetime_as_utc(value):
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value
+
+
+def format_datetime_for_display(value):
+    normalized_value = normalize_datetime_as_utc(value)
+
+    if normalized_value is None:
+        return "-"
+
+    local_value = normalized_value.astimezone(DISPLAY_TIMEZONE)
+
+    return local_value.strftime("%d.%m.%Y %H:%M:%S")
+
+
+def get_action_type_label(action_type):
+    return ACTION_TYPE_LABELS.get(action_type, action_type)
+
+
+def get_role_label(role):
+    return ROLE_LABELS.get(role, role or "-")
+
+
+def build_action_log_view_model(action_log):
+    return {
+        "id": action_log.id,
+        "created_at": format_datetime_for_display(action_log.created_at),
+        "username": action_log.username_snapshot or "Sistem",
+        "role": get_role_label(action_log.role_snapshot),
+        "action_type": action_log.action_type,
+        "action_label": get_action_type_label(action_log.action_type),
+        "target_type": action_log.target_type or "-",
+        "target_label": action_log.target_label or "-",
+        "description": action_log.description,
+        "ip_address": action_log.ip_address or "-",
+    }
 
 
 def validate_new_user_form(username, full_name, role, password):
@@ -146,4 +217,26 @@ def users():
         users=user_records,
         role_choices=ROLE_CHOICES,
         form_values=form_values,
+    )
+
+
+@admin_bp.route("/action-logs", methods=["GET"])
+@admin_required
+def action_logs():
+    action_log_records = (
+        ActionLog.query
+        .order_by(ActionLog.id.desc())
+        .limit(100)
+        .all()
+    )
+
+    action_logs_view = [
+        build_action_log_view_model(action_log)
+        for action_log in action_log_records
+    ]
+
+    return render_template(
+        "admin/action_logs.html",
+        app_name="Lido Masa Takip Sistemi",
+        action_logs=action_logs_view,
     )

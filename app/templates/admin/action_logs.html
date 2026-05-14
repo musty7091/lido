@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="admin-page-header">
+    <div>
+        <h2>İşlem Logları</h2>
+        <p>Son 100 sistem işlemini görüntüleyin.</p>
+    </div>
+
+    <div class="admin-page-actions">
+        <a href="{{ url_for('admin.users') }}" class="btn btn-light rounded-3">
+            Kullanıcı Yönetimi
+        </a>
+
+        <a href="{{ url_for('index') }}" class="btn btn-primary rounded-3">
+            Masa Ekranına Dön
+        </a>
+    </div>
+</section>
+
+<section class="admin-log-card">
+    <div class="admin-card-title">
+        <h3>Son İşlemler</h3>
+        <p>En yeni işlem en üstte görüntülenir.</p>
+    </div>
+
+    <div class="admin-log-list">
+        {% for action_log in action_logs %}
+        <div class="admin-log-row">
+            <div class="admin-log-time">
+                <strong>{{ action_log.created_at }}</strong>
+                <span>{{ action_log.ip_address }}</span>
+            </div>
+
+            <div class="admin-log-main">
+                <div class="admin-log-topline">
+                    <span class="admin-log-action">{{ action_log.action_label }}</span>
+                    <span class="admin-log-target">{{ action_log.target_label }}</span>
+                </div>
+
+                <p>{{ action_log.description }}</p>
+
+                <div class="admin-log-subline">
+                    <span>Kullanıcı: <strong>{{ action_log.username }}</strong></span>
+                    <span>Rol: <strong>{{ action_log.role }}</strong></span>
+                    <span>İşlem Kodu: <strong>{{ action_log.action_type }}</strong></span>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="admin-empty-state">
+            Henüz işlem logu bulunmuyor.
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
