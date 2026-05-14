@@ -30,22 +30,86 @@
 
             <div class="topbar-right">
                 {% if current_user.is_authenticated %}
-                <div class="user-box">
-                    <div class="user-avatar">
-                        {{ current_user.full_name[:1] | upper }}
-                    </div>
-                    <div>
-                        <strong>{{ current_user.full_name }}</strong>
-                        <small>{{ current_user.role_label }}</small>
+                <div class="dropdown profile-dropdown">
+                    <button
+                        class="user-menu-button"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                    >
+                        <div class="user-avatar">
+                            {{ current_user.full_name[:1] | upper }}
+                        </div>
+
+                        <div class="user-menu-text">
+                            <strong>{{ current_user.full_name }}</strong>
+                            <small>{{ current_user.role_label }}</small>
+                        </div>
+
+                        <span class="user-menu-arrow">▾</span>
+                    </button>
+
+                    <div class="dropdown-menu dropdown-menu-end profile-dropdown-menu">
+                        <div class="profile-menu-header">
+                            <div class="profile-menu-avatar">
+                                {{ current_user.full_name[:1] | upper }}
+                            </div>
+
+                            <div>
+                                <strong>{{ current_user.full_name }}</strong>
+                                <span>{{ current_user.role_label }}</span>
+                            </div>
+                        </div>
+
+                        <div class="profile-menu-section">
+                            <div class="profile-info-row">
+                                <span>Kullanıcı adı</span>
+                                <strong>{{ current_user.username }}</strong>
+                            </div>
+
+                            <div class="profile-info-row">
+                                <span>Rol</span>
+                                <strong>{{ current_user.role_label }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="profile-menu-divider"></div>
+
+                        <a class="profile-menu-item" href="{{ url_for('auth.change_password') }}">
+                            <span>🔐</span>
+                            <div>
+                                <strong>Şifre Değiştir</strong>
+                                <small>Hesap güvenliğini güncelle</small>
+                            </div>
+                        </a>
+
+                        <button
+                            class="profile-menu-item profile-menu-button"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#quickHelpModal"
+                        >
+                            <span>❔</span>
+                            <div>
+                                <strong>Kısa Kullanım Rehberi</strong>
+                                <small>Masa renkleri ve hızlı işlem özeti</small>
+                            </div>
+                        </button>
+
+                        <div class="profile-menu-divider"></div>
+
+                        <form method="post" action="{{ url_for('auth.logout') }}" class="profile-logout-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="profile-menu-item profile-menu-button logout-menu-button">
+                                <span>🚪</span>
+                                <div>
+                                    <strong>Çıkış Yap</strong>
+                                    <small>Oturumu güvenli şekilde kapat</small>
+                                </div>
+                            </button>
+                        </form>
                     </div>
                 </div>
-
-                <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-light btn-sm rounded-pill px-3">
-                        Çıkış
-                    </button>
-                </form>
                 {% else %}
                 <div class="user-box">
                     <div class="user-avatar">L</div>
@@ -58,10 +122,102 @@
             </div>
         </header>
 
+        {% if current_user.is_authenticated and current_user.is_default_password %}
+        <div class="default-password-warning">
+            Varsayılan şifre kullanılıyor. Sisteme devam etmek için lütfen yeni bir şifre belirleyin.
+        </div>
+        {% endif %}
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <section class="flash-message-container">
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} rounded-4 shadow-sm mb-2">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </section>
+            {% endif %}
+        {% endwith %}
+
         <main class="page-content">
             {% block content %}{% endblock %}
         </main>
     </div>
+
+    {% if current_user.is_authenticated %}
+    <div class="modal fade" id="quickHelpModal" tabindex="-1" aria-labelledby="quickHelpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title fs-5 fw-bold" id="quickHelpModalLabel">
+                            Kısa Kullanım Rehberi
+                        </h2>
+                        <p class="text-muted small mb-0">
+                            Lido masa takip ekranı hızlı kullanım özeti
+                        </p>
+                    </div>
+
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="quick-help-list">
+                        <div class="quick-help-row">
+                            <span class="quick-help-dot quick-help-empty"></span>
+                            <div>
+                                <strong>Yeşil masa</strong>
+                                <p>Boş masa. Müşteri yönlendirmesi yapılabilir.</p>
+                            </div>
+                        </div>
+
+                        <div class="quick-help-row">
+                            <span class="quick-help-dot quick-help-occupied"></span>
+                            <div>
+                                <strong>Kırmızı masa</strong>
+                                <p>Dolu masa. Müşteri bilgileri sağ panelde görüntülenir.</p>
+                            </div>
+                        </div>
+
+                        <div class="quick-help-row">
+                            <span class="quick-help-dot quick-help-long"></span>
+                            <div>
+                                <strong>Turuncu masa</strong>
+                                <p>Uzun süreli dolu masa. Takip edilmesi önerilir.</p>
+                            </div>
+                        </div>
+
+                        <div class="quick-help-row">
+                            <span class="quick-help-dot quick-help-inactive"></span>
+                            <div>
+                                <strong>Gri masa</strong>
+                                <p>Pasif masa. İşlem yapılmaz.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quick-help-steps">
+                        <h3>Hızlı İşlem</h3>
+                        <ol>
+                            <li>Boş masayı seç.</li>
+                            <li>Kişi sayısı, müşteri adı, telefon ve not bilgilerini gir.</li>
+                            <li><strong>Masaya Gönder</strong> butonuna bas.</li>
+                            <li>Müşteri kalkınca dolu masayı seç.</li>
+                            <li><strong>Masa Boşaldı</strong> butonuna bas.</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary rounded-3 px-4" data-bs-dismiss="modal">
+                        Anladım
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     {% block scripts %}{% endblock %}
