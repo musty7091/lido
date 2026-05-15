@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from flask_login import UserMixin
+from sqlalchemy import inspect, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
@@ -129,6 +130,39 @@ class Table(db.Model):
         return f"<Table {self.code}>"
 
 
+class Customer(db.Model):
+    __tablename__ = "customers"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    full_name = db.Column(db.String(120), nullable=True, index=True)
+    phone_raw = db.Column(db.String(40), nullable=True)
+    phone_normalized = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    note = db.Column(db.Text, nullable=True)
+
+    first_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    visit_count = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    sessions = db.relationship(
+        "TableSession",
+        back_populates="customer",
+        lazy=True,
+    )
+
+    def __repr__(self):
+        return f"<Customer {self.phone_normalized}>"
+
+
 class TableSession(db.Model):
     __tablename__ = "table_sessions"
 
@@ -138,6 +172,7 @@ class TableSession(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     table_id = db.Column(db.Integer, db.ForeignKey("tables.id"), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True, index=True)
 
     customer_name = db.Column(db.String(120), nullable=True)
     customer_phone = db.Column(db.String(30), nullable=True)
@@ -163,6 +198,7 @@ class TableSession(db.Model):
     )
 
     table = db.relationship("Table", back_populates="sessions")
+    customer = db.relationship("Customer", back_populates="sessions")
 
     def __repr__(self):
         return f"<TableSession table_id={self.table_id} status={self.status}>"
@@ -193,3 +229,54 @@ class ActionLog(db.Model):
 
     def __repr__(self):
         return f"<ActionLog {self.action_type} {self.created_at}>"
+
+
+def ensure_customer_schema():
+    """
+    Mevcut SQLite veritabanını bozmadan müşteri hafızası için gerekli
+    tablo ve kolonları hazırlar.
+
+    Projede şu an ayrı bir migration sistemi olmadığı için bu küçük güvence
+    uygulama açılışında çalışır:
+    - Yeni kurulumda tüm tabloları oluşturur.
+    - Eski kurulumda customers tablosunu oluşturur.
+    - Eski table_sessions tablosuna customer_id kolonunu ekler.
+    """
+    db.create_all()
+
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+
+    if "table_sessions" not in table_names:
+        return
+
+    table_session_columns = {
+        column["name"]
+        for column in inspector.get_columns("table_sessions")
+    }
+
+    schema_changed = False
+
+    if "customer_id" not in table_session_columns:
+        db.session.execute(
+            text("ALTER TABLE table_sessions ADD COLUMN customer_id INTEGER")
+        )
+        schema_changed = True
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_table_sessions_customer_id "
+            "ON table_sessions (customer_id)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ix_customers_phone_normalized "
+            "ON customers (phone_normalized)"
+        )
+    )
+
+    db.session.commit()

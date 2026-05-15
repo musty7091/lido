@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="admin-page-header">
+    <div>
+        <h2>Müşteri Hafızası</h2>
+        <p>Telefon bilgisi verilen müşterileri, tekrar gelişleri ve son masa hareketlerini kompakt listeden takip edin.</p>
+    </div>
+
+    <div class="admin-page-actions">
+        <a href="{{ url_for('admin.reports') }}" class="btn btn-outline-primary rounded-3">
+            📊 Raporlar
+        </a>
+
+        <a href="{{ url_for('index') }}" class="btn btn-primary rounded-3">
+            🏠 Anasayfa
+        </a>
+    </div>
+</section>
+
+<section class="daily-summary-grid">
+    {% for stat in customer_stats %}
+    <article class="daily-summary-card">
+        <span>{{ stat.label }}</span>
+        <strong>{{ stat.value }}</strong>
+        <small>{{ stat.hint }}</small>
+    </article>
+    {% endfor %}
+</section>
+
+<section class="daily-report-filter-card">
+    <form method="get" action="{{ url_for('admin.customers') }}" class="daily-report-filter-grid">
+        <div>
+            <label class="form-label fw-semibold">Müşteri Ara</label>
+            <input
+                type="text"
+                name="q"
+                class="form-control form-control-lg rounded-3"
+                value="{{ search_text }}"
+                placeholder="Ad, telefon veya not ara"
+                autocomplete="off"
+            >
+            
+        </div>
+
+        <div class="daily-report-filter-actions">
+            <div>
+                <label class="form-label fw-semibold">Durum</label>
+                <select name="status" class="form-select form-select-lg rounded-3">
+                    <option value="all" {% if status_filter == "all" %}selected{% endif %}>Tümü</option>
+                    <option value="active" {% if status_filter == "active" %}selected{% endif %}>Aktif</option>
+                    <option value="passive" {% if status_filter == "passive" %}selected{% endif %}>Pasif</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="form-label fw-semibold">Sayfa Boyutu</label>
+                <select name="per_page" class="form-select form-select-lg rounded-3">
+                    <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg rounded-3 fw-bold">
+                Ara / Filtrele
+            </button>
+
+            <a href="{{ url_for('admin.customers') }}" class="btn btn-light btn-lg rounded-3 fw-bold">
+                Temizle
+            </a>
+        </div>
+    </form>
+</section>
+
+<section class="admin-list-card">
+    <div class="admin-card-title d-flex flex-wrap justify-content-between align-items-start gap-2">
+        <div>
+            <h3>Müşteri Kayıtları</h3>
+            <p>
+                Bu liste masa atama sırasında telefon bilgisi girildikçe otomatik oluşur.
+                Toplam eşleşen kayıt: {{ pagination.total_count }}
+            </p>
+        </div>
+
+        <div class="text-muted small fw-semibold">
+            {{ pagination.showing_start }} - {{ pagination.showing_end }} arası gösteriliyor
+        </div>
+    </div>
+
+    {% if customers %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Müşteri</th>
+                    <th scope="col">Telefon</th>
+                    <th scope="col" class="text-center">Ziyaret</th>
+                    <th scope="col">İlk Geliş</th>
+                    <th scope="col">Son Geliş</th>
+                    <th scope="col">Son Masa</th>
+                    <th scope="col" class="text-center">Durum</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for customer in customers %}
+                <tr>
+                    <td style="min-width: 220px;">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="rounded-circle bg-primary text-white fw-bold d-flex align-items-center justify-content-center flex-shrink-0" style="width: 34px; height: 34px;">
+                                {{ customer.initial }}
+                            </div>
+                            <div class="min-w-0">
+                                <div class="fw-bold text-dark">{{ customer.full_name }}</div>
+                                {% if customer.note %}
+                                <div class="small text-muted text-truncate" style="max-width: 260px;" title="{{ customer.note }}">
+                                    Not: {{ customer.note }}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+
+                    <td style="min-width: 170px;">
+                        <div class="fw-semibold">{{ customer.phone }}</div>
+                        <div class="small text-muted">Norm: {{ customer.phone_normalized }}</div>
+                    </td>
+
+                    <td class="text-center">
+                        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
+                            {{ customer.visit_count }}
+                        </span>
+                    </td>
+
+                    <td style="min-width: 130px;">
+                        <span class="small fw-semibold">{{ customer.first_seen_at }}</span>
+                    </td>
+
+                    <td style="min-width: 130px;">
+                        <span class="small fw-semibold">{{ customer.last_seen_at }}</span>
+                    </td>
+
+                    <td style="min-width: 150px;">
+                        <div class="fw-semibold">{{ customer.latest_table }} / {{ customer.latest_area }}</div>
+                        <div class="small text-muted">Son kişi: {{ customer.latest_party_size }}</div>
+                    </td>
+
+                    <td class="text-center" style="min-width: 150px;">
+                        <div class="d-flex flex-column gap-1 align-items-center">
+                            {% if customer.is_repeat_customer %}
+                            <span class="badge rounded-pill bg-success-subtle text-success border border-success-subtle">Tekrar gelen</span>
+                            {% else %}
+                            <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary-subtle">İlk ziyaret</span>
+                            {% endif %}
+
+                            {% if customer.is_active %}
+                            <span class="badge rounded-pill bg-light text-success border">Aktif</span>
+                            {% else %}
+                            <span class="badge rounded-pill bg-light text-danger border">Pasif</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pagination.total_pages > 1 %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
+        <div class="text-muted small fw-semibold">
+            Sayfa {{ pagination.page }} / {{ pagination.total_pages }}
+        </div>
+
+        <nav aria-label="Müşteri sayfaları">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_previous %}disabled{% endif %}">
+                    <a
+                        class="page-link"
+                        href="{{ url_for('admin.customers', q=search_text, status=status_filter, per_page=per_page, page=pagination.previous_page) }}"
+                    >
+                        Önceki
+                    </a>
+                </li>
+
+                {% for page_number in pagination.pages %}
+                <li class="page-item {% if page_number == pagination.page %}active{% endif %}">
+                    <a
+                        class="page-link"
+                        href="{{ url_for('admin.customers', q=search_text, status=status_filter, per_page=per_page, page=page_number) }}"
+                    >
+                        {{ page_number }}
+                    </a>
+                </li>
+                {% endfor %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a
+                        class="page-link"
+                        href="{{ url_for('admin.customers', q=search_text, status=status_filter, per_page=per_page, page=pagination.next_page) }}"
+                    >
+                        Sonraki
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="admin-empty-state">
+        Henüz müşteri kaydı bulunmuyor. Masa atarken telefon bilgisi girildiğinde kayıtlar burada oluşacak.
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

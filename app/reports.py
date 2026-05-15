@@ -27,7 +27,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from app.models import ActionLog, Area, Table, TableSession, utc_now
+from app.models import ActionLog, Area, Customer, Table, TableSession, utc_now
 from app.permissions import admin_required
 
 reports_bp = Blueprint("admin_reports", __name__, url_prefix="/admin/reports")
@@ -46,6 +46,8 @@ COLOR_GREEN = "1F9D55"
 COLOR_GREEN_SOFT = "E9F8EF"
 COLOR_RED = "E63946"
 COLOR_ORANGE = "F97316"
+
+PDF_CONTENT_WIDTH = 27.35 * cm
 
 ROLE_LABELS = {
     "admin": "Yönetici",
@@ -511,6 +513,40 @@ def find_most_used_table(table_rows):
     )
 
 
+def build_customer_memory_summary(started_sessions):
+    phone_session_count = 0
+    linked_session_count = 0
+    unique_customer_ids = set()
+    unique_customers = {}
+
+    for session in started_sessions:
+        if session.customer_phone:
+            phone_session_count += 1
+
+        if session.customer_id:
+            linked_session_count += 1
+            unique_customer_ids.add(session.customer_id)
+
+            if session.customer_id not in unique_customers:
+                unique_customers[session.customer_id] = session.customer
+
+    returning_customer_count = 0
+
+    for customer in unique_customers.values():
+        if customer is not None and (customer.visit_count or 0) > 1:
+            returning_customer_count += 1
+
+    total_registered_customer_count = Customer.query.count()
+
+    return {
+        "phone_session_count": phone_session_count,
+        "linked_session_count": linked_session_count,
+        "unique_customer_count": len(unique_customer_ids),
+        "returning_customer_count": returning_customer_count,
+        "total_registered_customer_count": total_registered_customer_count,
+    }
+
+
 def build_daily_summary_report(selected_date):
     day_start_utc, day_end_utc = build_day_range_utc(selected_date)
 
@@ -537,6 +573,7 @@ def build_daily_summary_report(selected_date):
     staff_rows = build_staff_summary_rows(action_logs)
     transfer_rows = build_transfer_rows(action_logs)
     session_rows = build_session_rows(started_sessions)
+    customer_memory_summary = build_customer_memory_summary(started_sessions)
 
     return {
         "selected_date": selected_date,
@@ -574,7 +611,23 @@ def build_daily_summary_report(selected_date):
                 "value": format_duration_from_minutes(average_duration_minutes),
                 "hint": "Bugün kapanan oturumlara göre ortalama süre",
             },
+            {
+                "label": "Telefonlu Oturum",
+                "value": customer_memory_summary["phone_session_count"],
+                "hint": "Telefon bilgisi girilen masa oturumları",
+            },
+            {
+                "label": "Tekil Müşteri",
+                "value": customer_memory_summary["unique_customer_count"],
+                "hint": "Telefon numarasıyla müşteri hafızasına bağlanan kişi sayısı",
+            },
+            {
+                "label": "Tekrar Gelen",
+                "value": customer_memory_summary["returning_customer_count"],
+                "hint": "Daha önce kaydı olan müşteriler",
+            },
         ],
+        "customer_memory_summary": customer_memory_summary,
         "most_used_area": find_most_used_area(area_rows),
         "most_used_table": find_most_used_table(table_rows),
         "area_rows": area_rows,
@@ -1058,106 +1111,157 @@ def create_pdf_styles(base_font, bold_font):
         "title": ParagraphStyle(
             "LidoTitle",
             fontName=bold_font,
-            fontSize=21,
-            leading=25,
+            fontSize=22,
+            leading=26,
             textColor=pdf_hex(COLOR_WHITE),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "subtitle": ParagraphStyle(
             "LidoSubtitle",
             fontName=base_font,
-            fontSize=9,
-            leading=12,
+            fontSize=9.2,
+            leading=12.2,
             textColor=pdf_hex(COLOR_WHITE),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "section": ParagraphStyle(
             "LidoSection",
             fontName=bold_font,
-            fontSize=12,
-            leading=15,
+            fontSize=12.2,
+            leading=15.5,
             textColor=pdf_hex(COLOR_NAVY),
+            spaceBefore=2,
             spaceAfter=6,
+            keepWithNext=1,
+            wordWrap="CJK",
         ),
         "body": ParagraphStyle(
             "LidoBody",
             fontName=base_font,
-            fontSize=7.6,
-            leading=9.5,
+            fontSize=7.7,
+            leading=9.7,
             textColor=pdf_hex(COLOR_TEXT),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "body_center": ParagraphStyle(
             "LidoBodyCenter",
             fontName=base_font,
-            fontSize=7.6,
-            leading=9.5,
+            fontSize=7.7,
+            leading=9.7,
             textColor=pdf_hex(COLOR_TEXT),
             alignment=TA_CENTER,
+            wordWrap="CJK",
         ),
         "body_right": ParagraphStyle(
             "LidoBodyRight",
             fontName=base_font,
-            fontSize=7.6,
-            leading=9.5,
+            fontSize=7.7,
+            leading=9.7,
             textColor=pdf_hex(COLOR_TEXT),
             alignment=TA_RIGHT,
+            wordWrap="CJK",
         ),
         "body_bold": ParagraphStyle(
             "LidoBodyBold",
             fontName=bold_font,
-            fontSize=7.8,
-            leading=9.8,
+            fontSize=7.9,
+            leading=10,
             textColor=pdf_hex(COLOR_TEXT),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "body_bold_center": ParagraphStyle(
             "LidoBodyBoldCenter",
             fontName=bold_font,
-            fontSize=7.8,
-            leading=9.8,
+            fontSize=7.9,
+            leading=10,
             textColor=pdf_hex(COLOR_TEXT),
             alignment=TA_CENTER,
+            wordWrap="CJK",
         ),
         "header_cell": ParagraphStyle(
             "LidoHeaderCell",
             fontName=bold_font,
-            fontSize=7.2,
-            leading=9,
+            fontSize=7.4,
+            leading=9.2,
             textColor=pdf_hex(COLOR_NAVY),
             alignment=TA_CENTER,
+            wordWrap="CJK",
         ),
         "small": ParagraphStyle(
             "LidoSmall",
             fontName=base_font,
-            fontSize=7,
-            leading=9,
+            fontSize=6.8,
+            leading=8.4,
             textColor=pdf_hex(COLOR_MUTED),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "small_center": ParagraphStyle(
             "LidoSmallCenter",
             fontName=base_font,
-            fontSize=7,
-            leading=9,
+            fontSize=6.8,
+            leading=8.4,
             textColor=pdf_hex(COLOR_MUTED),
             alignment=TA_CENTER,
+            wordWrap="CJK",
         ),
         "card_label": ParagraphStyle(
             "LidoCardLabel",
             fontName=bold_font,
-            fontSize=7.6,
-            leading=9.2,
+            fontSize=7.5,
+            leading=9,
             textColor=pdf_hex(COLOR_MUTED),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "card_value": ParagraphStyle(
             "LidoCardValue",
             fontName=bold_font,
-            fontSize=16,
-            leading=18,
+            fontSize=17,
+            leading=20,
             textColor=pdf_hex(COLOR_NAVY),
             alignment=TA_LEFT,
+            wordWrap="CJK",
+        ),
+        "card_hint": ParagraphStyle(
+            "LidoCardHint",
+            fontName=base_font,
+            fontSize=6.6,
+            leading=8.2,
+            textColor=pdf_hex(COLOR_MUTED),
+            alignment=TA_LEFT,
+            wordWrap="CJK",
+        ),
+        "highlight_label": ParagraphStyle(
+            "LidoHighlightLabel",
+            fontName=bold_font,
+            fontSize=8,
+            leading=10,
+            textColor=pdf_hex(COLOR_WHITE),
+            alignment=TA_LEFT,
+            wordWrap="CJK",
+        ),
+        "highlight_value": ParagraphStyle(
+            "LidoHighlightValue",
+            fontName=bold_font,
+            fontSize=8.4,
+            leading=10.5,
+            textColor=pdf_hex(COLOR_NAVY),
+            alignment=TA_LEFT,
+            wordWrap="CJK",
+        ),
+        "info_label": ParagraphStyle(
+            "LidoInfoLabel",
+            fontName=bold_font,
+            fontSize=8,
+            leading=10,
+            textColor=pdf_hex(COLOR_NAVY),
+            alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
         "info": ParagraphStyle(
             "LidoInfo",
@@ -1166,6 +1270,7 @@ def create_pdf_styles(base_font, bold_font):
             leading=11,
             textColor=pdf_hex(COLOR_MUTED),
             alignment=TA_LEFT,
+            wordWrap="CJK",
         ),
     }
 
@@ -1197,26 +1302,35 @@ def build_pdf_header(report, styles, unicode_enabled):
 
     title_block = [
         paragraph("Lido Genel Gün Özeti", styles["title"], unicode_enabled),
-        Spacer(1, 0.08 * cm),
+        Spacer(1, 0.09 * cm),
         paragraph(
             f"Tarih: {report['selected_date_display']} | Oluşturma: {report['generated_at']}",
+            styles["subtitle"],
+            unicode_enabled,
+        ),
+        Spacer(1, 0.03 * cm),
+        paragraph(
+            "Masa doluluk, müşteri hareketi ve personel işlem raporu",
             styles["subtitle"],
             unicode_enabled,
         ),
     ]
 
     if logo_path.exists():
-        logo = Image(str(logo_path), width=2.8 * cm, height=0.9 * cm)
+        logo = Image(str(logo_path), width=2.95 * cm, height=1.29 * cm)
+        logo.hAlign = "CENTER"
+
         logo_box = PdfTable(
             [[logo]],
-            colWidths=[3.25 * cm],
-            rowHeights=[1.22 * cm],
+            colWidths=[3.55 * cm],
+            rowHeights=[1.58 * cm],
+            hAlign="CENTER",
         )
         logo_box.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_WHITE)),
-                    ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                    ("BOX", (0, 0), (-1, -1), 0.55, pdf_hex(COLOR_BORDER)),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 7),
@@ -1228,22 +1342,23 @@ def build_pdf_header(report, styles, unicode_enabled):
         )
 
         header_data = [[logo_box, title_block]]
-        column_widths = [3.65 * cm, 22.95 * cm]
+        column_widths = [4.1 * cm, PDF_CONTENT_WIDTH - (4.1 * cm)]
     else:
         header_data = [[title_block]]
-        column_widths = [26.6 * cm]
+        column_widths = [PDF_CONTENT_WIDTH]
 
-    table = PdfTable(header_data, colWidths=column_widths)
+    table = PdfTable(header_data, colWidths=column_widths, hAlign="LEFT")
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_NAVY)),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                ("TOPPADDING", (0, 0), (-1, -1), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 11),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 11),
+                ("TOPPADDING", (0, 0), (-1, -1), 11),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 11),
                 ("BOX", (0, 0), (-1, -1), 0.4, pdf_hex(COLOR_NAVY)),
+                ("LINEBELOW", (0, 0), (-1, -1), 2.2, pdf_hex(COLOR_LIGHT_BLUE)),
             ]
         )
     )
@@ -1253,40 +1368,46 @@ def build_pdf_header(report, styles, unicode_enabled):
 
 def build_pdf_summary_cards(report, styles, unicode_enabled):
     card_cells = []
+    column_count = 3
 
     for card in report["summary_cards"]:
         cell_content = [
             paragraph(card["label"], styles["card_label"], unicode_enabled),
-            Spacer(1, 0.06 * cm),
+            Spacer(1, 0.07 * cm),
             paragraph(card["value"], styles["card_value"], unicode_enabled),
             Spacer(1, 0.05 * cm),
-            paragraph(card["hint"], styles["small"], unicode_enabled),
+            paragraph(card["hint"], styles["card_hint"], unicode_enabled),
         ]
         card_cells.append(cell_content)
 
-    rows = [
-        card_cells[0:3],
-        card_cells[3:6],
-    ]
+    rows = []
+
+    for start_index in range(0, len(card_cells), column_count):
+        row = card_cells[start_index:start_index + column_count]
+
+        while len(row) < column_count:
+            row.append("")
+
+        rows.append(row)
 
     table = PdfTable(
         rows,
-        colWidths=[8.65 * cm, 8.65 * cm, 8.65 * cm],
-        rowHeights=[1.85 * cm, 1.85 * cm],
+        colWidths=[PDF_CONTENT_WIDTH / column_count] * column_count,
         hAlign="LEFT",
     )
 
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_LIGHT_GRAY)),
-                ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_WHITE)),
+                ("BOX", (0, 0), (-1, -1), 0.55, pdf_hex(COLOR_BORDER)),
                 ("INNERGRID", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 9),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ("TOPPADDING", (0, 0), (-1, -1), 8),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("BACKGROUND", (0, 0), (-1, 0), pdf_hex("FBFCFF")),
             ]
         )
     )
@@ -1301,18 +1422,18 @@ def build_pdf_summary_cards(report, styles, unicode_enabled):
 def build_pdf_highlights(report, styles, unicode_enabled):
     data = [
         [
-            paragraph("En Çok Kullanılan Alan", styles["body_bold"], unicode_enabled),
-            paragraph(report["most_used_area"], styles["body"], unicode_enabled),
+            paragraph("En Çok Kullanılan Alan", styles["highlight_label"], unicode_enabled),
+            paragraph(report["most_used_area"], styles["highlight_value"], unicode_enabled),
         ],
         [
-            paragraph("En Çok Kullanılan Masa", styles["body_bold"], unicode_enabled),
-            paragraph(report["most_used_table"], styles["body"], unicode_enabled),
+            paragraph("En Çok Kullanılan Masa", styles["highlight_label"], unicode_enabled),
+            paragraph(report["most_used_table"], styles["highlight_value"], unicode_enabled),
         ],
     ]
 
     table = PdfTable(
         data,
-        colWidths=[6.1 * cm, 19.85 * cm],
+        colWidths=[6.5 * cm, PDF_CONTENT_WIDTH - (6.5 * cm)],
         hAlign="LEFT",
     )
 
@@ -1320,13 +1441,12 @@ def build_pdf_highlights(report, styles, unicode_enabled):
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (0, -1), pdf_hex(COLOR_NAVY)),
-                ("TEXTCOLOR", (0, 0), (0, -1), pdf_hex(COLOR_WHITE)),
                 ("BACKGROUND", (1, 0), (1, -1), pdf_hex(COLOR_LIGHT_BLUE)),
-                ("GRID", (0, 0), (-1, -1), 0.4, pdf_hex(COLOR_BORDER)),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
@@ -1341,16 +1461,23 @@ def build_pdf_highlights(report, styles, unicode_enabled):
 
 def build_pdf_info_box(message, styles, unicode_enabled):
     table = PdfTable(
-        [[paragraph(message, styles["info"], unicode_enabled)]],
-        colWidths=[25.95 * cm],
+        [
+            [
+                paragraph("Bilgi", styles["info_label"], unicode_enabled),
+                paragraph(message, styles["info"], unicode_enabled),
+            ]
+        ],
+        colWidths=[2.2 * cm, PDF_CONTENT_WIDTH - (2.2 * cm)],
         hAlign="LEFT",
     )
 
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_LIGHT_GRAY)),
-                ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("BACKGROUND", (0, 0), (0, 0), pdf_hex(COLOR_LIGHT_BLUE)),
+                ("BACKGROUND", (1, 0), (1, 0), pdf_hex("FBFCFF")),
+                ("BOX", (0, 0), (-1, -1), 0.5, pdf_hex(COLOR_BORDER)),
+                ("LINEBEFORE", (0, 0), (0, 0), 2.0, pdf_hex(COLOR_NAVY)),
                 ("LEFTPADDING", (0, 0), (-1, -1), 9),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 9),
                 ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -1364,20 +1491,22 @@ def build_pdf_info_box(message, styles, unicode_enabled):
 
 
 def build_pdf_table(title, headers, rows, column_widths, alignments, styles, unicode_enabled):
-    elements = [
-        paragraph(title, styles["section"], unicode_enabled),
-    ]
+    title_flowable = paragraph(title, styles["section"], unicode_enabled)
 
     if not rows:
-        elements.append(
-            build_pdf_info_box(
-                f"{title} için seçilen tarihte kayıt bulunmuyor.",
-                styles,
-                unicode_enabled,
+        return [
+            KeepTogether(
+                [
+                    title_flowable,
+                    build_pdf_info_box(
+                        f"{title} için seçilen tarihte kayıt bulunmuyor.",
+                        styles,
+                        unicode_enabled,
+                    ),
+                    Spacer(1, 0.32 * cm),
+                ]
             )
-        )
-        elements.append(Spacer(1, 0.32 * cm))
-        return elements
+        ]
 
     table_data = [
         [
@@ -1408,17 +1537,19 @@ def build_pdf_table(title, headers, rows, column_widths, alignments, styles, uni
         colWidths=column_widths,
         repeatRows=1,
         hAlign="LEFT",
+        splitByRow=1,
     )
 
     style_commands = [
         ("BACKGROUND", (0, 0), (-1, 0), pdf_hex(COLOR_LIGHT_BLUE)),
         ("TEXTCOLOR", (0, 0), (-1, 0), pdf_hex(COLOR_NAVY)),
         ("GRID", (0, 0), (-1, -1), 0.35, pdf_hex(COLOR_BORDER)),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.75, pdf_hex(COLOR_NAVY_SOFT)),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 3.8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4.8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4.8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4.2),
     ]
 
     for row_index in range(1, len(table_data)):
@@ -1429,8 +1560,14 @@ def build_pdf_table(title, headers, rows, column_widths, alignments, styles, uni
 
     table.setStyle(TableStyle(style_commands))
 
-    elements.append(table)
-    elements.append(Spacer(1, 0.34 * cm))
+    elements = [
+        title_flowable,
+        table,
+        Spacer(1, 0.34 * cm),
+    ]
+
+    if len(rows) <= 9:
+        return [KeepTogether(elements)]
 
     return elements
 
@@ -1454,7 +1591,7 @@ def build_daily_summary_pdf_file(report):
 
     elements = [
         build_pdf_header(report, styles, unicode_enabled),
-        Spacer(1, 0.38 * cm),
+        Spacer(1, 0.4 * cm),
     ]
 
     elements.append(
@@ -1484,7 +1621,7 @@ def build_daily_summary_pdf_file(report):
                 ]
                 for row in report["area_rows"]
             ],
-            column_widths=[6.4 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 3.2 * cm, 3.2 * cm],
+            column_widths=[7.75 * cm, 3.15 * cm, 3.15 * cm, 3.15 * cm, 5.05 * cm, 5.05 * cm],
             alignments=["left", "center", "center", "center", "center", "center"],
             styles=styles,
             unicode_enabled=unicode_enabled,
@@ -1507,7 +1644,7 @@ def build_daily_summary_pdf_file(report):
                 ]
                 for row in report["table_rows"]
             ],
-            column_widths=[2.2 * cm, 4.5 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm, 3.0 * cm, 3.0 * cm],
+            column_widths=[2.7 * cm, 6.4 * cm, 3.0 * cm, 3.0 * cm, 3.0 * cm, 4.6 * cm, 4.6 * cm],
             alignments=["center", "left", "center", "center", "center", "center", "center"],
             styles=styles,
             unicode_enabled=unicode_enabled,
@@ -1529,7 +1666,7 @@ def build_daily_summary_pdf_file(report):
                 ]
                 for row in report["staff_rows"]
             ],
-            column_widths=[5.2 * cm, 4.2 * cm, 2.4 * cm, 2.4 * cm, 2.4 * cm, 2.4 * cm],
+            column_widths=[6.8 * cm, 5.8 * cm, 3.5 * cm, 3.5 * cm, 3.5 * cm, 4.2 * cm],
             alignments=["left", "left", "center", "center", "center", "center"],
             styles=styles,
             unicode_enabled=unicode_enabled,
@@ -1553,14 +1690,15 @@ def build_daily_summary_pdf_file(report):
                 ]
                 for row in report["transfer_rows"]
             ],
-            column_widths=[1.6 * cm, 2.2 * cm, 3.3 * cm, 2.2 * cm, 3.3 * cm, 1.4 * cm, 4.2 * cm, 3.6 * cm],
+            column_widths=[2.0 * cm, 2.6 * cm, 4.2 * cm, 2.6 * cm, 4.2 * cm, 1.6 * cm, 5.4 * cm, 4.7 * cm],
             alignments=["center", "center", "left", "center", "left", "center", "left", "left"],
             styles=styles,
             unicode_enabled=unicode_enabled,
         )
     )
 
-    elements.append(PageBreak())
+    if report["session_rows"]:
+        elements.append(PageBreak())
 
     elements.extend(
         build_pdf_table(
@@ -1580,7 +1718,7 @@ def build_daily_summary_pdf_file(report):
                 ]
                 for row in report["session_rows"]
             ],
-            column_widths=[1.7 * cm, 3.2 * cm, 1.2 * cm, 4.1 * cm, 2.7 * cm, 1.5 * cm, 1.5 * cm, 2.3 * cm, 2.2 * cm],
+            column_widths=[2.0 * cm, 3.9 * cm, 1.5 * cm, 5.7 * cm, 3.7 * cm, 2.0 * cm, 2.0 * cm, 3.1 * cm, 3.4 * cm],
             alignments=["center", "left", "center", "left", "left", "center", "center", "center", "center"],
             styles=styles,
             unicode_enabled=unicode_enabled,

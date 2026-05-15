@@ -3,10 +3,11 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user
+from sqlalchemy import func, or_
 
 from app.audit import log_action
 from app.extensions import db
-from app.models import ActionLog, Area, Table, TableSession, User
+from app.models import ActionLog, Area, Customer, Table, TableSession, User
 from app.permissions import admin_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -177,6 +178,30 @@ def get_role_choices_values():
     return [role_choice["value"] for role_choice in ROLE_CHOICES]
 
 
+def normalize_phone_search_text(value):
+    cleaned_value = clean_text(value)
+
+    if not cleaned_value:
+        return ""
+
+    digits = "".join(
+        character
+        for character in cleaned_value
+        if character.isdigit()
+    )
+
+    if digits.startswith("0090") and len(digits) == 14:
+        digits = digits[4:]
+
+    if digits.startswith("90") and len(digits) == 12:
+        digits = digits[2:]
+
+    if digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+
+    return digits
+
+
 def get_user_or_redirect(user_id):
     user = db.session.get(User, user_id)
 
@@ -257,6 +282,131 @@ def build_action_log_view_model(action_log):
         "description": action_log.description,
         "ip_address": action_log.ip_address or "-",
     }
+
+
+def format_customer_phone_for_display(customer):
+    if customer.phone_raw:
+        return customer.phone_raw
+
+    if customer.phone_normalized:
+        return f"0{customer.phone_normalized}"
+
+    return "-"
+
+
+def build_customer_view_model(customer):
+    full_name = customer.full_name or "İsimsiz Müşteri"
+    first_seen_display = format_datetime_for_display(customer.first_seen_at)
+    last_seen_display = format_datetime_for_display(customer.last_seen_at)
+
+    latest_session = (
+        TableSession.query
+        .filter_by(customer_id=customer.id)
+        .order_by(TableSession.check_in_at.desc(), TableSession.id.desc())
+        .first()
+    )
+
+    latest_table = "-"
+    latest_area = "-"
+    latest_party_size = "-"
+
+    if latest_session is not None and latest_session.table is not None:
+        latest_table = latest_session.table.code
+        latest_area = latest_session.table.area.name if latest_session.table.area else "-"
+        latest_party_size = latest_session.party_size or "-"
+
+    return {
+        "id": customer.id,
+        "initial": full_name[:1].upper(),
+        "full_name": full_name,
+        "phone": format_customer_phone_for_display(customer),
+        "phone_normalized": customer.phone_normalized,
+        "note": customer.note or "",
+        "first_seen_at": first_seen_display,
+        "last_seen_at": last_seen_display,
+        "visit_count": customer.visit_count or 0,
+        "is_active": customer.is_active,
+        "latest_table": latest_table,
+        "latest_area": latest_area,
+        "latest_party_size": latest_party_size,
+        "is_repeat_customer": (customer.visit_count or 0) > 1,
+    }
+
+
+def build_customer_stats():
+    total_customers = Customer.query.count()
+    active_customers = Customer.query.filter_by(is_active=True).count()
+    passive_customers = Customer.query.filter_by(is_active=False).count()
+    repeat_customers = Customer.query.filter(Customer.visit_count > 1).count()
+    total_visits = db.session.query(func.coalesce(func.sum(Customer.visit_count), 0)).scalar() or 0
+
+    return [
+        {
+            "label": "Toplam Müşteri",
+            "value": total_customers,
+            "hint": "Telefon bilgisiyle otomatik oluşan kayıt sayısı",
+        },
+        {
+            "label": "Aktif Müşteri",
+            "value": active_customers,
+            "hint": "Kullanılabilir müşteri kayıtları",
+        },
+        {
+            "label": "Tekrar Gelen",
+            "value": repeat_customers,
+            "hint": "Ziyaret sayısı 1'den fazla olan müşteriler",
+        },
+        {
+            "label": "Toplam Ziyaret",
+            "value": total_visits,
+            "hint": "Müşteri kayıtlarındaki toplam ziyaret sayısı",
+        },
+        {
+            "label": "Pasif Kayıt",
+            "value": passive_customers,
+            "hint": "İleride kullanılmak üzere pasife alınmış kayıtlar",
+        },
+    ]
+
+
+def build_customer_query(search_text, status_filter):
+    customer_query = Customer.query
+
+    if status_filter == "active":
+        customer_query = customer_query.filter(Customer.is_active.is_(True))
+    elif status_filter == "passive":
+        customer_query = customer_query.filter(Customer.is_active.is_(False))
+
+    if search_text:
+        search_pattern = f"%{search_text}%"
+        phone_search_text = normalize_phone_search_text(search_text)
+        phone_search_pattern = f"%{phone_search_text}%" if phone_search_text else search_pattern
+
+        customer_query = customer_query.filter(
+            or_(
+                Customer.full_name.ilike(search_pattern),
+                Customer.phone_raw.ilike(search_pattern),
+                Customer.phone_raw.ilike(phone_search_pattern),
+                Customer.phone_normalized.ilike(search_pattern),
+                Customer.phone_normalized.ilike(phone_search_pattern),
+                Customer.note.ilike(search_pattern),
+            )
+        )
+
+    return customer_query
+
+
+def build_pagination_pages(current_page, total_pages):
+    if total_pages <= 1:
+        return [1]
+
+    page_candidates = {1, total_pages}
+
+    for page_number in range(current_page - 2, current_page + 3):
+        if 1 <= page_number <= total_pages:
+            page_candidates.add(page_number)
+
+    return sorted(page_candidates)
 
 
 def build_table_view_model(table):
@@ -1478,6 +1628,80 @@ def update_table(table_id):
         db.session.rollback()
         flash(str(exc), "danger")
         return redirect(url_for("admin.tables", area=table.area.slug))
+
+@admin_bp.route("/customers", methods=["GET"])
+@admin_required
+def customers():
+    search_text = clean_text(request.args.get("q"))
+    status_filter = clean_text(request.args.get("status")) or "all"
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+
+    if status_filter not in ["all", "active", "passive"]:
+        status_filter = "all"
+
+    if page is None or page < 1:
+        page = 1
+
+    if per_page not in [25, 50, 100]:
+        per_page = 50
+
+    customer_query = build_customer_query(
+        search_text=search_text,
+        status_filter=status_filter,
+    )
+
+    total_filtered_count = customer_query.count()
+    total_pages = max(1, (total_filtered_count + per_page - 1) // per_page)
+
+    if page > total_pages:
+        page = total_pages
+
+    customer_records = (
+        customer_query
+        .order_by(Customer.last_seen_at.desc(), Customer.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    customer_rows = [
+        build_customer_view_model(customer)
+        for customer in customer_records
+    ]
+
+    if total_filtered_count == 0:
+        showing_start = 0
+        showing_end = 0
+    else:
+        showing_start = ((page - 1) * per_page) + 1
+        showing_end = showing_start + len(customer_rows) - 1
+
+    pagination = {
+        "page": page,
+        "per_page": per_page,
+        "total_count": total_filtered_count,
+        "total_pages": total_pages,
+        "has_previous": page > 1,
+        "has_next": page < total_pages,
+        "previous_page": page - 1,
+        "next_page": page + 1,
+        "showing_start": showing_start,
+        "showing_end": showing_end,
+        "pages": build_pagination_pages(page, total_pages),
+    }
+
+    return render_template(
+        "admin/customers.html",
+        app_name="Lido Masa Takip Sistemi",
+        customers=customer_rows,
+        customer_stats=build_customer_stats(),
+        search_text=search_text,
+        status_filter=status_filter,
+        per_page=per_page,
+        pagination=pagination,
+    )
+
 
 @admin_bp.route("/reports", methods=["GET"])
 @admin_required

@@ -2,7 +2,7 @@ from datetime import timezone
 
 from app.audit import log_action
 from app.extensions import db
-from app.models import Table, TableSession, utc_now
+from app.models import Customer, Table, TableSession, utc_now
 
 
 def normalize_optional_text(value):
@@ -15,6 +15,33 @@ def normalize_optional_text(value):
         return None
 
     return cleaned_value
+
+
+def normalize_phone_number(value):
+    cleaned_value = normalize_optional_text(value)
+
+    if cleaned_value is None:
+        return None
+
+    digits = "".join(
+        character
+        for character in cleaned_value
+        if character.isdigit()
+    )
+
+    if digits.startswith("0090") and len(digits) == 14:
+        digits = digits[4:]
+
+    if digits.startswith("90") and len(digits) == 12:
+        digits = digits[2:]
+
+    if digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+
+    if len(digits) != 10:
+        return None
+
+    return digits
 
 
 def parse_table_id(value):
@@ -55,6 +82,50 @@ def get_active_session_for_table(table_id):
     )
 
 
+def find_or_create_customer_for_assignment(customer_name=None, customer_phone=None):
+    cleaned_customer_name = normalize_optional_text(customer_name)
+    cleaned_customer_phone = normalize_optional_text(customer_phone)
+    phone_normalized = normalize_phone_number(cleaned_customer_phone)
+
+    if phone_normalized is None:
+        return None, None, "no_phone_match"
+
+    customer = Customer.query.filter_by(phone_normalized=phone_normalized).first()
+    now = utc_now()
+
+    if customer is None:
+        customer = Customer(
+            full_name=cleaned_customer_name,
+            phone_raw=cleaned_customer_phone,
+            phone_normalized=phone_normalized,
+            first_seen_at=now,
+            last_seen_at=now,
+            visit_count=0,
+            is_active=True,
+        )
+        db.session.add(customer)
+        db.session.flush()
+        match_status = "created"
+    else:
+        if cleaned_customer_name is not None:
+            customer.full_name = cleaned_customer_name
+
+        if cleaned_customer_phone is not None:
+            customer.phone_raw = cleaned_customer_phone
+
+        if customer.first_seen_at is None:
+            customer.first_seen_at = now
+
+        customer.last_seen_at = now
+        customer.is_active = True
+        match_status = "matched"
+
+    customer.visit_count = (customer.visit_count or 0) + 1
+    customer.last_seen_at = now
+
+    return customer, phone_normalized, match_status
+
+
 def assign_table(
     table_id,
     party_size,
@@ -84,12 +155,21 @@ def assign_table(
         raise ValueError("Bu masa için zaten aktif bir müşteri oturumu var.")
 
     parsed_party_size = parse_party_size(party_size)
+    cleaned_customer_name = normalize_optional_text(customer_name)
+    cleaned_customer_phone = normalize_optional_text(customer_phone)
+    cleaned_note = normalize_optional_text(note)
+
+    customer, phone_normalized, customer_match_status = find_or_create_customer_for_assignment(
+        customer_name=cleaned_customer_name,
+        customer_phone=cleaned_customer_phone,
+    )
 
     table_session = TableSession(
         table_id=table.id,
-        customer_name=normalize_optional_text(customer_name),
-        customer_phone=normalize_optional_text(customer_phone),
-        note=normalize_optional_text(note),
+        customer_id=customer.id if customer is not None else None,
+        customer_name=cleaned_customer_name,
+        customer_phone=cleaned_customer_phone,
+        note=cleaned_note,
         party_size=parsed_party_size,
         status=TableSession.STATUS_ACTIVE,
         opened_by_user_id=user_id,
@@ -115,8 +195,11 @@ def assign_table(
             "table_code": table.code,
             "area_name": table.area.name,
             "party_size": parsed_party_size,
+            "customer_id": table_session.customer_id,
             "customer_name": table_session.customer_name,
             "customer_phone": table_session.customer_phone,
+            "customer_phone_normalized": phone_normalized,
+            "customer_match_status": customer_match_status,
             "note": table_session.note,
             "table_session_id": table_session.id,
         },
@@ -194,6 +277,7 @@ def clear_table(
             "table_code": table.code,
             "area_name": table.area.name,
             "table_session_id": active_session.id,
+            "customer_id": active_session.customer_id,
             "party_size": active_session.party_size,
             "duration_minutes": duration_minutes,
             "customer_name": active_session.customer_name,
@@ -280,6 +364,7 @@ def transfer_table(
             "new_table_code": new_table_code,
             "new_area_name": new_area_name,
             "table_session_id": active_session.id,
+            "customer_id": active_session.customer_id,
             "party_size": active_session.party_size,
             "customer_name": active_session.customer_name,
             "customer_phone": active_session.customer_phone,
