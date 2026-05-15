@@ -37,13 +37,19 @@
                     Raporu Getir
                 </button>
 
-                <button type="button" class="btn btn-light btn-lg rounded-3 fw-bold" disabled>
+                <a
+                    href="{{ url_for('admin_reports.daily_summary_excel', date=report.selected_date_value) }}"
+                    class="btn btn-success btn-lg rounded-3 fw-bold"
+                >
                     Excel'e Aktar
-                </button>
+                </a>
 
-                <button type="button" class="btn btn-light btn-lg rounded-3 fw-bold" disabled>
+                <a
+                    href="{{ url_for('admin_reports.daily_summary_pdf', date=report.selected_date_value) }}"
+                    class="btn btn-danger btn-lg rounded-3 fw-bold"
+                >
                     PDF'e Aktar
-                </button>
+                </a>
             </div>
         </div>
     </form>

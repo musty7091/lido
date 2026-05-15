@@ -23,13 +23,13 @@
     </div>
 
     <div class="report-export-preview">
-        <button type="button" class="btn btn-light rounded-3" disabled>
-            Excel'e Aktar
-        </button>
-        <button type="button" class="btn btn-light rounded-3" disabled>
-            PDF'e Aktar
-        </button>
-        <small>Aktarım butonları rapor detayları tamamlandığında aktif olacak.</small>
+        <a href="{{ url_for('admin_reports.daily_summary_excel') }}" class="btn btn-light rounded-3">
+            Bugünü Excel'e Aktar
+        </a>
+        <a href="{{ url_for('admin_reports.daily_summary_pdf') }}" class="btn btn-light rounded-3">
+            Bugünü PDF'e Aktar
+        </a>
+        <small>Bugünün genel gün özeti dışa aktarılır.</small>
     </div>
 </section>
 
@@ -53,11 +53,18 @@
                 <a href="{{ url_for('admin_reports.daily_summary') }}" class="btn btn-primary rounded-3">
                     Raporu Aç
                 </a>
+
+                <a href="{{ url_for('admin_reports.daily_summary_excel') }}" class="btn btn-success rounded-3">
+                    Excel
+                </a>
+
+                <a href="{{ url_for('admin_reports.daily_summary_pdf') }}" class="btn btn-danger rounded-3">
+                    PDF
+                </a>
                 {% else %}
                 <button type="button" class="btn btn-outline-primary rounded-3" disabled>
                     Planlandı
                 </button>
-                {% endif %}
 
                 <button type="button" class="btn btn-light rounded-3" disabled>
                     Excel
@@ -66,6 +73,7 @@
                 <button type="button" class="btn btn-light rounded-3" disabled>
                     PDF
                 </button>
+                {% endif %}
             </div>
         </div>
     </article>

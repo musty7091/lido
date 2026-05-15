@@ -1,8 +1,31 @@
 from collections import defaultdict
-from datetime import date, datetime, time, timezone
+from datetime import datetime, time, timezone
+from io import BytesIO
+from pathlib import Path
 from zoneinfo import ZoneInfo
+from xml.sax.saxutils import escape
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, current_app, render_template, request, send_file
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import (
+    Image,
+    KeepTogether,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table as PdfTable,
+    TableStyle,
+)
 
 from app.models import ActionLog, Area, Table, TableSession, utc_now
 from app.permissions import admin_required
@@ -10,6 +33,54 @@ from app.permissions import admin_required
 reports_bp = Blueprint("admin_reports", __name__, url_prefix="/admin/reports")
 
 DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
+
+COLOR_NAVY = "071D49"
+COLOR_NAVY_SOFT = "0F2D67"
+COLOR_WHITE = "FFFFFF"
+COLOR_LIGHT_BLUE = "EEF3FF"
+COLOR_LIGHT_GRAY = "F4F7FB"
+COLOR_BORDER = "DCE3EE"
+COLOR_TEXT = "172033"
+COLOR_MUTED = "6B7280"
+COLOR_GREEN = "1F9D55"
+COLOR_GREEN_SOFT = "E9F8EF"
+COLOR_RED = "E63946"
+COLOR_ORANGE = "F97316"
+
+ROLE_LABELS = {
+    "admin": "Yönetici",
+    "door_staff": "Kapı Personeli",
+    "bar_staff": "Bar Personeli",
+    "system": "Sistem",
+    "-": "-",
+}
+
+TURKISH_ASCII_TRANSLATION = str.maketrans(
+    {
+        "ç": "c",
+        "Ç": "C",
+        "ğ": "g",
+        "Ğ": "G",
+        "ı": "i",
+        "I": "I",
+        "İ": "I",
+        "ö": "o",
+        "Ö": "O",
+        "ş": "s",
+        "Ş": "S",
+        "ü": "u",
+        "Ü": "U",
+    }
+)
+
+
+def pdf_hex(hex_value):
+    cleaned_value = str(hex_value).strip()
+
+    if not cleaned_value.startswith("#"):
+        cleaned_value = f"#{cleaned_value}"
+
+    return colors.HexColor(cleaned_value)
 
 
 def normalize_datetime_as_utc(value):
@@ -20,15 +91,6 @@ def normalize_datetime_as_utc(value):
         return value.replace(tzinfo=timezone.utc)
 
     return value.astimezone(timezone.utc)
-
-
-def convert_local_datetime_to_utc(value):
-    if value.tzinfo is None:
-        local_value = value.replace(tzinfo=DISPLAY_TIMEZONE)
-    else:
-        local_value = value.astimezone(DISPLAY_TIMEZONE)
-
-    return local_value.astimezone(timezone.utc)
 
 
 def get_today_local_date():
@@ -112,6 +174,10 @@ def calculate_active_duration_minutes(check_in_at):
         return 0
 
     return duration_minutes
+
+
+def get_role_label(role):
+    return ROLE_LABELS.get(role, role or "-")
 
 
 def safe_extra_data(action_log):
@@ -221,6 +287,8 @@ def build_area_summary_rows(started_sessions, completed_sessions):
                 "session_count": area_data["session_count"],
                 "guest_count": area_data["guest_count"],
                 "completed_count": completed_count,
+                "total_duration_minutes": area_data["total_duration_minutes"],
+                "average_duration_minutes": average_duration_minutes,
                 "total_duration": format_duration_from_minutes(
                     area_data["total_duration_minutes"]
                 ),
@@ -286,6 +354,8 @@ def build_table_summary_rows(started_sessions, completed_sessions):
                 "session_count": table_data["session_count"],
                 "guest_count": table_data["guest_count"],
                 "completed_count": completed_count,
+                "total_duration_minutes": table_data["total_duration_minutes"],
+                "average_duration_minutes": average_duration_minutes,
                 "total_duration": format_duration_from_minutes(
                     table_data["total_duration_minutes"]
                 ),
@@ -333,7 +403,7 @@ def build_staff_summary_rows(action_logs):
         role = action_log.role_snapshot or "-"
 
         staff_map[username]["username"] = username
-        staff_map[username]["role"] = role
+        staff_map[username]["role"] = get_role_label(role)
         staff_map[username][operation_types[action_log.action_type]] += 1
         staff_map[username]["total_count"] += 1
 
@@ -385,16 +455,17 @@ def build_session_rows(started_sessions):
     for session in started_sessions:
         if session.status == TableSession.STATUS_ACTIVE:
             status_label = "Aktif"
-            duration_text = format_duration_from_minutes(
-                calculate_active_duration_minutes(session.check_in_at)
-            )
+            duration_minutes = calculate_active_duration_minutes(session.check_in_at)
+            duration_text = format_duration_from_minutes(duration_minutes)
             check_out_text = "-"
         elif session.status == TableSession.STATUS_COMPLETED:
             status_label = "Tamamlandı"
+            duration_minutes = session.duration_minutes
             duration_text = format_duration_from_minutes(session.duration_minutes)
             check_out_text = format_datetime_for_display(session.check_out_at)
         else:
             status_label = "İptal"
+            duration_minutes = None
             duration_text = "-"
             check_out_text = format_datetime_for_display(session.check_out_at)
 
@@ -407,6 +478,7 @@ def build_session_rows(started_sessions):
                 "customer_phone": session.customer_phone or "-",
                 "check_in": format_datetime_for_display(session.check_in_at),
                 "check_out": check_out_text,
+                "duration_minutes": duration_minutes,
                 "duration": duration_text,
                 "status_label": status_label,
             }
@@ -470,11 +542,12 @@ def build_daily_summary_report(selected_date):
         "selected_date": selected_date,
         "selected_date_value": selected_date.strftime("%Y-%m-%d"),
         "selected_date_display": format_date_for_display(selected_date),
+        "generated_at": utc_now().astimezone(DISPLAY_TIMEZONE).strftime("%d.%m.%Y %H:%M"),
         "summary_cards": [
             {
-                "label": "Açılan Oturum",
+                "label": "Bugün Açılan Oturum",
                 "value": len(started_sessions),
-                "hint": "Seçilen gün masaya alınan oturum sayısı",
+                "hint": "Seçilen gün içinde masaya alınan oturum sayısı",
             },
             {
                 "label": "Aktif Masa",
@@ -482,9 +555,9 @@ def build_daily_summary_report(selected_date):
                 "hint": "Şu anda devam eden masa oturumları",
             },
             {
-                "label": "Boşaltılan Masa",
+                "label": "Bugün Kapanan Oturum",
                 "value": len(completed_sessions),
-                "hint": "Seçilen gün kapanan oturum sayısı",
+                "hint": "Seçilen gün içinde boşaltılan masa oturumu sayısı",
             },
             {
                 "label": "Toplam Müşteri",
@@ -499,7 +572,7 @@ def build_daily_summary_report(selected_date):
             {
                 "label": "Ortalama Süre",
                 "value": format_duration_from_minutes(average_duration_minutes),
-                "hint": "Tamamlanan oturumlara göre ortalama süre",
+                "hint": "Bugün kapanan oturumlara göre ortalama süre",
             },
         ],
         "most_used_area": find_most_used_area(area_rows),
@@ -512,6 +585,1019 @@ def build_daily_summary_report(selected_date):
     }
 
 
+def style_title_area(worksheet, title, subtitle, total_columns):
+    worksheet.merge_cells(
+        start_row=1,
+        start_column=1,
+        end_row=1,
+        end_column=total_columns,
+    )
+    worksheet.merge_cells(
+        start_row=2,
+        start_column=1,
+        end_row=2,
+        end_column=total_columns,
+    )
+
+    title_cell = worksheet.cell(row=1, column=1)
+    title_cell.value = title
+    title_cell.font = Font(size=18, bold=True, color=COLOR_WHITE)
+    title_cell.fill = PatternFill("solid", fgColor=COLOR_NAVY)
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    subtitle_cell = worksheet.cell(row=2, column=1)
+    subtitle_cell.value = subtitle
+    subtitle_cell.font = Font(size=11, bold=False, color=COLOR_WHITE)
+    subtitle_cell.fill = PatternFill("solid", fgColor=COLOR_NAVY_SOFT)
+    subtitle_cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    worksheet.row_dimensions[1].height = 28
+    worksheet.row_dimensions[2].height = 22
+
+
+def apply_common_sheet_style(worksheet):
+    worksheet.sheet_view.showGridLines = False
+    worksheet.freeze_panes = "A5"
+
+    worksheet.page_setup.orientation = "landscape"
+    worksheet.page_setup.paperSize = worksheet.PAPERSIZE_A4
+    worksheet.page_margins.left = 0.35
+    worksheet.page_margins.right = 0.35
+    worksheet.page_margins.top = 0.45
+    worksheet.page_margins.bottom = 0.45
+
+
+def style_range_border(worksheet, min_row, max_row, min_col, max_col):
+    thin_border = Border(
+        left=Side(style="thin", color=COLOR_BORDER),
+        right=Side(style="thin", color=COLOR_BORDER),
+        top=Side(style="thin", color=COLOR_BORDER),
+        bottom=Side(style="thin", color=COLOR_BORDER),
+    )
+
+    for row in worksheet.iter_rows(
+        min_row=min_row,
+        max_row=max_row,
+        min_col=min_col,
+        max_col=max_col,
+    ):
+        for cell in row:
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+
+def write_table(worksheet, start_row, headers, rows, column_widths=None):
+    header_fill = PatternFill("solid", fgColor=COLOR_LIGHT_BLUE)
+    header_font = Font(bold=True, color=COLOR_NAVY)
+    body_font = Font(color=COLOR_TEXT)
+
+    for column_index, header in enumerate(headers, start=1):
+        cell = worksheet.cell(row=start_row, column=column_index)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    current_row = start_row + 1
+
+    if not rows:
+        worksheet.merge_cells(
+            start_row=current_row,
+            start_column=1,
+            end_row=current_row,
+            end_column=len(headers),
+        )
+        empty_cell = worksheet.cell(row=current_row, column=1)
+        empty_cell.value = "Bu bölüm için veri bulunmuyor."
+        empty_cell.font = Font(color=COLOR_MUTED, italic=True)
+        empty_cell.alignment = Alignment(horizontal="center", vertical="center")
+        style_range_border(worksheet, start_row, current_row, 1, len(headers))
+        return current_row + 2
+
+    for row_values in rows:
+        for column_index, value in enumerate(row_values, start=1):
+            cell = worksheet.cell(row=current_row, column=column_index)
+            cell.value = value
+            cell.font = body_font
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+        current_row += 1
+
+    last_row = current_row - 1
+    style_range_border(worksheet, start_row, last_row, 1, len(headers))
+    worksheet.auto_filter.ref = f"A{start_row}:{get_column_letter(len(headers))}{last_row}"
+
+    if column_widths:
+        for column_index, width in enumerate(column_widths, start=1):
+            worksheet.column_dimensions[get_column_letter(column_index)].width = width
+    else:
+        for column_index in range(1, len(headers) + 1):
+            worksheet.column_dimensions[get_column_letter(column_index)].width = 18
+
+    return current_row + 2
+
+
+def build_summary_sheet(workbook, report):
+    worksheet = workbook.active
+    worksheet.title = "Ozet"
+
+    style_title_area(
+        worksheet=worksheet,
+        title="Lido Genel Gün Özeti",
+        subtitle=f"Tarih: {report['selected_date_display']} | Oluşturma: {report['generated_at']}",
+        total_columns=6,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = ["Gösterge", "Değer", "Açıklama"]
+    rows = [
+        [
+            card["label"],
+            card["value"],
+            card["hint"],
+        ]
+        for card in report["summary_cards"]
+    ]
+
+    next_row = write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[26, 18, 48],
+    )
+
+    highlight_headers = ["Başlık", "Sonuç"]
+    highlight_rows = [
+        ["En Çok Kullanılan Alan", report["most_used_area"]],
+        ["En Çok Kullanılan Masa", report["most_used_table"]],
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=next_row,
+        headers=highlight_headers,
+        rows=highlight_rows,
+        column_widths=[28, 58],
+    )
+
+    worksheet.column_dimensions["A"].width = 28
+    worksheet.column_dimensions["B"].width = 20
+    worksheet.column_dimensions["C"].width = 55
+
+
+def build_area_sheet(workbook, report):
+    worksheet = workbook.create_sheet("Alan Bazli Ozet")
+
+    style_title_area(
+        worksheet=worksheet,
+        title="Alan Bazlı Özet",
+        subtitle=f"Tarih: {report['selected_date_display']}",
+        total_columns=8,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = [
+        "Alan",
+        "Oturum",
+        "Müşteri",
+        "Kapanan",
+        "Toplam Süre",
+        "Ortalama Süre",
+        "Toplam Süre (dk)",
+        "Ortalama Süre (dk)",
+    ]
+
+    rows = [
+        [
+            row["area_name"],
+            row["session_count"],
+            row["guest_count"],
+            row["completed_count"],
+            row["total_duration"],
+            row["average_duration"],
+            row["total_duration_minutes"],
+            row["average_duration_minutes"] or 0,
+        ]
+        for row in report["area_rows"]
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[24, 12, 12, 12, 18, 18, 18, 20],
+    )
+
+
+def build_tables_sheet(workbook, report):
+    worksheet = workbook.create_sheet("En Cok Kullanilan Masalar")
+
+    style_title_area(
+        worksheet=worksheet,
+        title="En Çok Kullanılan Masalar",
+        subtitle=f"Tarih: {report['selected_date_display']} | İlk 10 masa",
+        total_columns=9,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = [
+        "Masa",
+        "Alan",
+        "Oturum",
+        "Müşteri",
+        "Kapanan",
+        "Toplam Süre",
+        "Ortalama Süre",
+        "Toplam Süre (dk)",
+        "Ortalama Süre (dk)",
+    ]
+
+    rows = [
+        [
+            row["table_code"],
+            row["area_name"],
+            row["session_count"],
+            row["guest_count"],
+            row["completed_count"],
+            row["total_duration"],
+            row["average_duration"],
+            row["total_duration_minutes"],
+            row["average_duration_minutes"] or 0,
+        ]
+        for row in report["table_rows"]
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[14, 22, 12, 12, 12, 18, 18, 18, 20],
+    )
+
+
+def build_staff_sheet(workbook, report):
+    worksheet = workbook.create_sheet("Personel Islemleri")
+
+    style_title_area(
+        worksheet=worksheet,
+        title="Personel İşlem Özeti",
+        subtitle=f"Tarih: {report['selected_date_display']}",
+        total_columns=6,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = [
+        "Personel",
+        "Rol",
+        "Masa Açma",
+        "Masa Boşaltma",
+        "Transfer",
+        "Toplam İşlem",
+    ]
+
+    rows = [
+        [
+            row["username"],
+            row["role"],
+            row["assigned_count"],
+            row["cleared_count"],
+            row["transfer_count"],
+            row["total_count"],
+        ]
+        for row in report["staff_rows"]
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[24, 20, 14, 16, 14, 16],
+    )
+
+
+def build_transfer_sheet(workbook, report):
+    worksheet = workbook.create_sheet("Masa Transferleri")
+
+    style_title_area(
+        worksheet=worksheet,
+        title="Masa Transferleri",
+        subtitle=f"Tarih: {report['selected_date_display']}",
+        total_columns=8,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = [
+        "Saat",
+        "Kaynak Masa",
+        "Kaynak Alan",
+        "Hedef Masa",
+        "Hedef Alan",
+        "Kişi",
+        "Müşteri",
+        "Personel",
+    ]
+
+    rows = [
+        [
+            row["time"],
+            row["old_table_code"],
+            row["old_area_name"],
+            row["new_table_code"],
+            row["new_area_name"],
+            row["party_size"],
+            row["customer_name"],
+            row["username"],
+        ]
+        for row in report["transfer_rows"]
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[12, 16, 22, 16, 22, 10, 26, 22],
+    )
+
+
+def build_sessions_sheet(workbook, report):
+    worksheet = workbook.create_sheet("Gunluk Masa Hareketleri")
+
+    style_title_area(
+        worksheet=worksheet,
+        title="Günlük Masa Hareketleri",
+        subtitle=f"Tarih: {report['selected_date_display']}",
+        total_columns=10,
+    )
+
+    apply_common_sheet_style(worksheet)
+
+    headers = [
+        "Masa",
+        "Alan",
+        "Kişi",
+        "Müşteri",
+        "Telefon",
+        "Giriş",
+        "Çıkış",
+        "Süre",
+        "Süre (dk)",
+        "Durum",
+    ]
+
+    rows = [
+        [
+            row["table_code"],
+            row["area_name"],
+            row["party_size"],
+            row["customer_name"],
+            row["customer_phone"],
+            row["check_in"],
+            row["check_out"],
+            row["duration"],
+            row["duration_minutes"] or 0,
+            row["status_label"],
+        ]
+        for row in report["session_rows"]
+    ]
+
+    write_table(
+        worksheet=worksheet,
+        start_row=4,
+        headers=headers,
+        rows=rows,
+        column_widths=[12, 22, 10, 26, 18, 12, 12, 16, 14, 16],
+    )
+
+
+def build_daily_summary_excel_file(report):
+    workbook = Workbook()
+
+    workbook.properties.title = "Lido Genel Gün Özeti"
+    workbook.properties.subject = "Lido Masa Takip Sistemi Günlük Rapor"
+    workbook.properties.creator = "Lido Masa Takip Sistemi"
+
+    build_summary_sheet(workbook, report)
+    build_area_sheet(workbook, report)
+    build_tables_sheet(workbook, report)
+    build_staff_sheet(workbook, report)
+    build_transfer_sheet(workbook, report)
+    build_sessions_sheet(workbook, report)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    return output
+
+
+def find_first_existing_path(paths):
+    for path in paths:
+        if path and Path(path).exists():
+            return str(path)
+
+    return None
+
+
+def register_pdf_fonts():
+    app_root = Path(current_app.root_path)
+
+    regular_font_path = find_first_existing_path(
+        [
+            app_root / "static" / "fonts" / "DejaVuSans.ttf",
+            app_root / "static" / "fonts" / "Arial.ttf",
+            Path("C:/Windows/Fonts/arial.ttf"),
+            Path("C:/Windows/Fonts/calibri.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+        ]
+    )
+
+    bold_font_path = find_first_existing_path(
+        [
+            app_root / "static" / "fonts" / "DejaVuSans-Bold.ttf",
+            app_root / "static" / "fonts" / "Arial Bold.ttf",
+            Path("C:/Windows/Fonts/arialbd.ttf"),
+            Path("C:/Windows/Fonts/calibrib.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+        ]
+    )
+
+    if regular_font_path and bold_font_path:
+        pdfmetrics.registerFont(TTFont("LidoFont", regular_font_path))
+        pdfmetrics.registerFont(TTFont("LidoFont-Bold", bold_font_path))
+        return "LidoFont", "LidoFont-Bold", True
+
+    return "Helvetica", "Helvetica-Bold", False
+
+
+def pdf_safe_text(value, unicode_enabled):
+    if value is None:
+        text = "-"
+    else:
+        text = str(value)
+
+    if not unicode_enabled:
+        text = text.translate(TURKISH_ASCII_TRANSLATION)
+
+    return escape(text)
+
+
+def create_pdf_styles(base_font, bold_font):
+    return {
+        "title": ParagraphStyle(
+            "LidoTitle",
+            fontName=bold_font,
+            fontSize=21,
+            leading=25,
+            textColor=pdf_hex(COLOR_WHITE),
+            alignment=TA_LEFT,
+        ),
+        "subtitle": ParagraphStyle(
+            "LidoSubtitle",
+            fontName=base_font,
+            fontSize=9,
+            leading=12,
+            textColor=pdf_hex(COLOR_WHITE),
+            alignment=TA_LEFT,
+        ),
+        "section": ParagraphStyle(
+            "LidoSection",
+            fontName=bold_font,
+            fontSize=12,
+            leading=15,
+            textColor=pdf_hex(COLOR_NAVY),
+            spaceAfter=6,
+        ),
+        "body": ParagraphStyle(
+            "LidoBody",
+            fontName=base_font,
+            fontSize=7.6,
+            leading=9.5,
+            textColor=pdf_hex(COLOR_TEXT),
+            alignment=TA_LEFT,
+        ),
+        "body_center": ParagraphStyle(
+            "LidoBodyCenter",
+            fontName=base_font,
+            fontSize=7.6,
+            leading=9.5,
+            textColor=pdf_hex(COLOR_TEXT),
+            alignment=TA_CENTER,
+        ),
+        "body_right": ParagraphStyle(
+            "LidoBodyRight",
+            fontName=base_font,
+            fontSize=7.6,
+            leading=9.5,
+            textColor=pdf_hex(COLOR_TEXT),
+            alignment=TA_RIGHT,
+        ),
+        "body_bold": ParagraphStyle(
+            "LidoBodyBold",
+            fontName=bold_font,
+            fontSize=7.8,
+            leading=9.8,
+            textColor=pdf_hex(COLOR_TEXT),
+            alignment=TA_LEFT,
+        ),
+        "body_bold_center": ParagraphStyle(
+            "LidoBodyBoldCenter",
+            fontName=bold_font,
+            fontSize=7.8,
+            leading=9.8,
+            textColor=pdf_hex(COLOR_TEXT),
+            alignment=TA_CENTER,
+        ),
+        "header_cell": ParagraphStyle(
+            "LidoHeaderCell",
+            fontName=bold_font,
+            fontSize=7.2,
+            leading=9,
+            textColor=pdf_hex(COLOR_NAVY),
+            alignment=TA_CENTER,
+        ),
+        "small": ParagraphStyle(
+            "LidoSmall",
+            fontName=base_font,
+            fontSize=7,
+            leading=9,
+            textColor=pdf_hex(COLOR_MUTED),
+            alignment=TA_LEFT,
+        ),
+        "small_center": ParagraphStyle(
+            "LidoSmallCenter",
+            fontName=base_font,
+            fontSize=7,
+            leading=9,
+            textColor=pdf_hex(COLOR_MUTED),
+            alignment=TA_CENTER,
+        ),
+        "card_label": ParagraphStyle(
+            "LidoCardLabel",
+            fontName=bold_font,
+            fontSize=7.6,
+            leading=9.2,
+            textColor=pdf_hex(COLOR_MUTED),
+            alignment=TA_LEFT,
+        ),
+        "card_value": ParagraphStyle(
+            "LidoCardValue",
+            fontName=bold_font,
+            fontSize=16,
+            leading=18,
+            textColor=pdf_hex(COLOR_NAVY),
+            alignment=TA_LEFT,
+        ),
+        "info": ParagraphStyle(
+            "LidoInfo",
+            fontName=base_font,
+            fontSize=8,
+            leading=11,
+            textColor=pdf_hex(COLOR_MUTED),
+            alignment=TA_LEFT,
+        ),
+    }
+
+
+def paragraph(value, style, unicode_enabled):
+    return Paragraph(pdf_safe_text(value, unicode_enabled), style)
+
+
+def add_pdf_footer(canvas, doc, base_font, unicode_enabled):
+    canvas.saveState()
+    canvas.setFont(base_font, 7)
+    canvas.setFillColor(pdf_hex(COLOR_MUTED))
+
+    footer_text = "Lido Masa Takip Sistemi"
+    if not unicode_enabled:
+        footer_text = footer_text.translate(TURKISH_ASCII_TRANSLATION)
+
+    canvas.drawString(1.2 * cm, 0.7 * cm, footer_text)
+    canvas.drawRightString(
+        landscape(A4)[0] - 1.2 * cm,
+        0.7 * cm,
+        f"Sayfa {doc.page}",
+    )
+    canvas.restoreState()
+
+
+def build_pdf_header(report, styles, unicode_enabled):
+    logo_path = Path(current_app.root_path) / "static" / "img" / "lido.png"
+
+    title_block = [
+        paragraph("Lido Genel Gün Özeti", styles["title"], unicode_enabled),
+        Spacer(1, 0.08 * cm),
+        paragraph(
+            f"Tarih: {report['selected_date_display']} | Oluşturma: {report['generated_at']}",
+            styles["subtitle"],
+            unicode_enabled,
+        ),
+    ]
+
+    if logo_path.exists():
+        logo = Image(str(logo_path), width=2.8 * cm, height=0.9 * cm)
+        logo_box = PdfTable(
+            [[logo]],
+            colWidths=[3.25 * cm],
+            rowHeights=[1.22 * cm],
+        )
+        logo_box.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_WHITE)),
+                    ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+
+        header_data = [[logo_box, title_block]]
+        column_widths = [3.65 * cm, 22.95 * cm]
+    else:
+        header_data = [[title_block]]
+        column_widths = [26.6 * cm]
+
+    table = PdfTable(header_data, colWidths=column_widths)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_NAVY)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("BOX", (0, 0), (-1, -1), 0.4, pdf_hex(COLOR_NAVY)),
+            ]
+        )
+    )
+
+    return table
+
+
+def build_pdf_summary_cards(report, styles, unicode_enabled):
+    card_cells = []
+
+    for card in report["summary_cards"]:
+        cell_content = [
+            paragraph(card["label"], styles["card_label"], unicode_enabled),
+            Spacer(1, 0.06 * cm),
+            paragraph(card["value"], styles["card_value"], unicode_enabled),
+            Spacer(1, 0.05 * cm),
+            paragraph(card["hint"], styles["small"], unicode_enabled),
+        ]
+        card_cells.append(cell_content)
+
+    rows = [
+        card_cells[0:3],
+        card_cells[3:6],
+    ]
+
+    table = PdfTable(
+        rows,
+        colWidths=[8.65 * cm, 8.65 * cm, 8.65 * cm],
+        rowHeights=[1.85 * cm, 1.85 * cm],
+        hAlign="LEFT",
+    )
+
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_LIGHT_GRAY)),
+                ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("INNERGRID", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+
+    return [
+        paragraph("Yönetici Özeti", styles["section"], unicode_enabled),
+        table,
+        Spacer(1, 0.35 * cm),
+    ]
+
+
+def build_pdf_highlights(report, styles, unicode_enabled):
+    data = [
+        [
+            paragraph("En Çok Kullanılan Alan", styles["body_bold"], unicode_enabled),
+            paragraph(report["most_used_area"], styles["body"], unicode_enabled),
+        ],
+        [
+            paragraph("En Çok Kullanılan Masa", styles["body_bold"], unicode_enabled),
+            paragraph(report["most_used_table"], styles["body"], unicode_enabled),
+        ],
+    ]
+
+    table = PdfTable(
+        data,
+        colWidths=[6.1 * cm, 19.85 * cm],
+        hAlign="LEFT",
+    )
+
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), pdf_hex(COLOR_NAVY)),
+                ("TEXTCOLOR", (0, 0), (0, -1), pdf_hex(COLOR_WHITE)),
+                ("BACKGROUND", (1, 0), (1, -1), pdf_hex(COLOR_LIGHT_BLUE)),
+                ("GRID", (0, 0), (-1, -1), 0.4, pdf_hex(COLOR_BORDER)),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+
+    return [
+        paragraph("Öne Çıkanlar", styles["section"], unicode_enabled),
+        table,
+        Spacer(1, 0.35 * cm),
+    ]
+
+
+def build_pdf_info_box(message, styles, unicode_enabled):
+    table = PdfTable(
+        [[paragraph(message, styles["info"], unicode_enabled)]],
+        colWidths=[25.95 * cm],
+        hAlign="LEFT",
+    )
+
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), pdf_hex(COLOR_LIGHT_GRAY)),
+                ("BOX", (0, 0), (-1, -1), 0.45, pdf_hex(COLOR_BORDER)),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+
+    return table
+
+
+def build_pdf_table(title, headers, rows, column_widths, alignments, styles, unicode_enabled):
+    elements = [
+        paragraph(title, styles["section"], unicode_enabled),
+    ]
+
+    if not rows:
+        elements.append(
+            build_pdf_info_box(
+                f"{title} için seçilen tarihte kayıt bulunmuyor.",
+                styles,
+                unicode_enabled,
+            )
+        )
+        elements.append(Spacer(1, 0.32 * cm))
+        return elements
+
+    table_data = [
+        [
+            paragraph(header, styles["header_cell"], unicode_enabled)
+            for header in headers
+        ]
+    ]
+
+    for row in rows:
+        prepared_row = []
+
+        for index, value in enumerate(row):
+            alignment = alignments[index] if index < len(alignments) else "left"
+
+            if alignment == "center":
+                style = styles["body_center"]
+            elif alignment == "right":
+                style = styles["body_right"]
+            else:
+                style = styles["body"]
+
+            prepared_row.append(paragraph(value, style, unicode_enabled))
+
+        table_data.append(prepared_row)
+
+    table = PdfTable(
+        table_data,
+        colWidths=column_widths,
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+
+    style_commands = [
+        ("BACKGROUND", (0, 0), (-1, 0), pdf_hex(COLOR_LIGHT_BLUE)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), pdf_hex(COLOR_NAVY)),
+        ("GRID", (0, 0), (-1, -1), 0.35, pdf_hex(COLOR_BORDER)),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.8),
+    ]
+
+    for row_index in range(1, len(table_data)):
+        if row_index % 2 == 0:
+            style_commands.append(
+                ("BACKGROUND", (0, row_index), (-1, row_index), pdf_hex("FAFBFD"))
+            )
+
+    table.setStyle(TableStyle(style_commands))
+
+    elements.append(table)
+    elements.append(Spacer(1, 0.34 * cm))
+
+    return elements
+
+
+def build_daily_summary_pdf_file(report):
+    base_font, bold_font, unicode_enabled = register_pdf_fonts()
+    styles = create_pdf_styles(base_font, bold_font)
+
+    output = BytesIO()
+
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        rightMargin=1.05 * cm,
+        leftMargin=1.05 * cm,
+        topMargin=0.9 * cm,
+        bottomMargin=1.0 * cm,
+        title="Lido Genel Gün Özeti",
+        author="Lido Masa Takip Sistemi",
+    )
+
+    elements = [
+        build_pdf_header(report, styles, unicode_enabled),
+        Spacer(1, 0.38 * cm),
+    ]
+
+    elements.append(
+        KeepTogether(
+            build_pdf_summary_cards(report, styles, unicode_enabled)
+        )
+    )
+
+    elements.append(
+        KeepTogether(
+            build_pdf_highlights(report, styles, unicode_enabled)
+        )
+    )
+
+    elements.extend(
+        build_pdf_table(
+            title="Alan Bazlı Özet",
+            headers=["Alan", "Oturum", "Müşteri", "Kapanan", "Toplam Süre", "Ortalama"],
+            rows=[
+                [
+                    row["area_name"],
+                    row["session_count"],
+                    row["guest_count"],
+                    row["completed_count"],
+                    row["total_duration"],
+                    row["average_duration"],
+                ]
+                for row in report["area_rows"]
+            ],
+            column_widths=[6.4 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 3.2 * cm, 3.2 * cm],
+            alignments=["left", "center", "center", "center", "center", "center"],
+            styles=styles,
+            unicode_enabled=unicode_enabled,
+        )
+    )
+
+    elements.extend(
+        build_pdf_table(
+            title="En Çok Kullanılan Masalar",
+            headers=["Masa", "Alan", "Oturum", "Müşteri", "Kapanan", "Toplam Süre", "Ort. Süre"],
+            rows=[
+                [
+                    row["table_code"],
+                    row["area_name"],
+                    row["session_count"],
+                    row["guest_count"],
+                    row["completed_count"],
+                    row["total_duration"],
+                    row["average_duration"],
+                ]
+                for row in report["table_rows"]
+            ],
+            column_widths=[2.2 * cm, 4.5 * cm, 2.0 * cm, 2.0 * cm, 2.0 * cm, 3.0 * cm, 3.0 * cm],
+            alignments=["center", "left", "center", "center", "center", "center", "center"],
+            styles=styles,
+            unicode_enabled=unicode_enabled,
+        )
+    )
+
+    elements.extend(
+        build_pdf_table(
+            title="Personel İşlem Özeti",
+            headers=["Personel", "Rol", "Masa Açma", "Boşaltma", "Transfer", "Toplam"],
+            rows=[
+                [
+                    row["username"],
+                    row["role"],
+                    row["assigned_count"],
+                    row["cleared_count"],
+                    row["transfer_count"],
+                    row["total_count"],
+                ]
+                for row in report["staff_rows"]
+            ],
+            column_widths=[5.2 * cm, 4.2 * cm, 2.4 * cm, 2.4 * cm, 2.4 * cm, 2.4 * cm],
+            alignments=["left", "left", "center", "center", "center", "center"],
+            styles=styles,
+            unicode_enabled=unicode_enabled,
+        )
+    )
+
+    elements.extend(
+        build_pdf_table(
+            title="Masa Transferleri",
+            headers=["Saat", "Kaynak", "Kaynak Alan", "Hedef", "Hedef Alan", "Kişi", "Müşteri", "Personel"],
+            rows=[
+                [
+                    row["time"],
+                    row["old_table_code"],
+                    row["old_area_name"],
+                    row["new_table_code"],
+                    row["new_area_name"],
+                    row["party_size"],
+                    row["customer_name"],
+                    row["username"],
+                ]
+                for row in report["transfer_rows"]
+            ],
+            column_widths=[1.6 * cm, 2.2 * cm, 3.3 * cm, 2.2 * cm, 3.3 * cm, 1.4 * cm, 4.2 * cm, 3.6 * cm],
+            alignments=["center", "center", "left", "center", "left", "center", "left", "left"],
+            styles=styles,
+            unicode_enabled=unicode_enabled,
+        )
+    )
+
+    elements.append(PageBreak())
+
+    elements.extend(
+        build_pdf_table(
+            title="Günlük Masa Hareketleri",
+            headers=["Masa", "Alan", "Kişi", "Müşteri", "Telefon", "Giriş", "Çıkış", "Süre", "Durum"],
+            rows=[
+                [
+                    row["table_code"],
+                    row["area_name"],
+                    row["party_size"],
+                    row["customer_name"],
+                    row["customer_phone"],
+                    row["check_in"],
+                    row["check_out"],
+                    row["duration"],
+                    row["status_label"],
+                ]
+                for row in report["session_rows"]
+            ],
+            column_widths=[1.7 * cm, 3.2 * cm, 1.2 * cm, 4.1 * cm, 2.7 * cm, 1.5 * cm, 1.5 * cm, 2.3 * cm, 2.2 * cm],
+            alignments=["center", "left", "center", "left", "left", "center", "center", "center", "center"],
+            styles=styles,
+            unicode_enabled=unicode_enabled,
+        )
+    )
+
+    doc.build(
+        elements,
+        onFirstPage=lambda canvas, document: add_pdf_footer(canvas, document, base_font, unicode_enabled),
+        onLaterPages=lambda canvas, document: add_pdf_footer(canvas, document, base_font, unicode_enabled),
+    )
+
+    output.seek(0)
+
+    return output
+
+
 @reports_bp.route("/daily-summary", methods=["GET"])
 @admin_required
 def daily_summary():
@@ -522,4 +1608,38 @@ def daily_summary():
         "admin/reports/daily_summary.html",
         app_name="Lido Masa Takip Sistemi",
         report=report,
+    )
+
+
+@reports_bp.route("/daily-summary/excel", methods=["GET"])
+@admin_required
+def daily_summary_excel():
+    selected_date = parse_selected_date(request.args.get("date"))
+    report = build_daily_summary_report(selected_date)
+    excel_file = build_daily_summary_excel_file(report)
+
+    filename = f"lido_genel_gun_ozeti_{report['selected_date_value']}.xlsx"
+
+    return send_file(
+        excel_file,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@reports_bp.route("/daily-summary/pdf", methods=["GET"])
+@admin_required
+def daily_summary_pdf():
+    selected_date = parse_selected_date(request.args.get("date"))
+    report = build_daily_summary_report(selected_date)
+    pdf_file = build_daily_summary_pdf_file(report)
+
+    filename = f"lido_genel_gun_ozeti_{report['selected_date_value']}.pdf"
+
+    return send_file(
+        pdf_file,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
     )
