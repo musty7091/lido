@@ -9,10 +9,21 @@ from app.admin import admin_bp
 from app.auth import auth_bp
 from app.config import Config, INSTANCE_DIR
 from app.extensions import csrf, db, login_manager
-from app.models import Area, Table, TableSession, User, ensure_customer_schema, utc_now
+from app.models import Area, ServiceRequest, Table, TableSession, User, ensure_customer_schema, utc_now
 from app.permissions import staff_required
 from app.reports import reports_bp
-from app.services import assign_table, clear_table, transfer_table
+from app.services import (
+    SERVICE_REQUEST_TYPE_LABELS,
+    assign_table,
+    build_service_request_api_row,
+    clear_table,
+    complete_service_request,
+    create_service_request_from_qr,
+    get_active_service_requests,
+    get_active_session_for_table,
+    mark_service_request_seen,
+    transfer_table,
+)
 
 
 DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
@@ -95,7 +106,42 @@ def get_active_session_map():
     }
 
 
-def build_table_view_model(table, active_session=None):
+
+def get_active_service_request_map():
+    active_service_requests = get_active_service_requests()
+    service_request_map = {}
+
+    for service_request in active_service_requests:
+        service_request_map.setdefault(service_request.table_id, []).append(service_request)
+
+    return service_request_map
+
+
+def build_table_service_request_summary(service_requests):
+    if not service_requests:
+        return {
+            "count": 0,
+            "label": "",
+            "status": "",
+        }
+
+    first_request = service_requests[0]
+    count = len(service_requests)
+    request_label = SERVICE_REQUEST_TYPE_LABELS.get(
+        first_request.request_type,
+        first_request.request_type,
+    )
+
+    if count > 1:
+        request_label = f"{count} çağrı"
+
+    return {
+        "count": count,
+        "label": request_label,
+        "status": first_request.status,
+    }
+
+def build_table_view_model(table, active_session=None, service_requests=None):
     customer_count = None
     party_size = ""
     customer_name = ""
@@ -103,6 +149,7 @@ def build_table_view_model(table, active_session=None):
     note = ""
     check_in_display = ""
     duration = "-"
+    service_request_summary = build_table_service_request_summary(service_requests or [])
 
     if active_session is not None:
         customer_count = active_session.party_size
@@ -127,6 +174,9 @@ def build_table_view_model(table, active_session=None):
         "note": note,
         "check_in_display": check_in_display,
         "duration": duration,
+        "service_request_count": service_request_summary["count"],
+        "service_request_label": service_request_summary["label"],
+        "service_request_status": service_request_summary["status"],
     }
 
 
@@ -208,11 +258,13 @@ def get_dashboard_context():
     )
 
     active_session_map = get_active_session_map()
+    service_request_map = get_active_service_request_map()
 
     tables = [
         build_table_view_model(
             table_record,
             active_session_map.get(table_record.id),
+            service_request_map.get(table_record.id, []),
         )
         for table_record in table_records
     ]

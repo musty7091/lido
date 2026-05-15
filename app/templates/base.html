@@ -34,6 +34,36 @@
 
             <div class="topbar-right">
                 {% if current_user.is_authenticated %}
+                <div class="service-requests-widget">
+                    <button
+                        id="serviceRequestsButton"
+                        class="service-requests-button"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="serviceRequestsPanel"
+                        title="Aktif servis çağrıları"
+                    >
+                        <span class="service-requests-icon">🔔</span>
+                        <span class="service-requests-text">Çağrılar</span>
+                        <strong id="serviceRequestsCount">0</strong>
+                    </button>
+
+                    <div id="serviceRequestsPanel" class="service-requests-panel" aria-live="polite">
+                        <div class="service-requests-panel-header">
+                            <div>
+                                <h3>Aktif Çağrılar</h3>
+                                <p>QR üzerinden gelen masa talepleri</p>
+                            </div>
+                        </div>
+
+                        <div id="serviceRequestsEmpty" class="service-requests-empty">
+                            Aktif servis çağrısı yok.
+                        </div>
+
+                        <div id="serviceRequestsList" class="service-requests-list"></div>
+                    </div>
+                </div>
+
                 <div class="dropdown profile-dropdown">
                     <button
                         class="user-menu-button"
@@ -268,6 +298,9 @@
     {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% if current_user.is_authenticated %}
+    <script src="{{ url_for('static', filename='js/service_requests.js') }}"></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -122,6 +122,9 @@
                     data-customer-phone="{{ table.customer_phone }}"
                     data-note="{{ table.note }}"
                     data-check-in-display="{{ table.check_in_display }}"
+                    data-service-request-count="{{ table.service_request_count }}"
+                    data-service-request-label="{{ table.service_request_label }}"
+                    data-service-request-status="{{ table.service_request_status }}"
                 >
                     <div class="table-card-top">
                         <strong>{{ table.code }}</strong>
@@ -144,6 +147,12 @@
                     {% if table.status in ["occupied", "long"] %}
                     <div class="table-card-time">
                         {{ table.party_size }} kişi · {{ table.duration }}
+                    </div>
+                    {% endif %}
+
+                    {% if table.service_request_count > 0 %}
+                    <div class="table-service-badge table-service-badge-{{ table.service_request_status }}">
+                        🔔 {{ table.service_request_label }}
                     </div>
                     {% endif %}
                 </button>
@@ -254,9 +263,21 @@
                 </div>
             </div>
 
+            <div id="selectedServiceRequestBox" class="service-request-detail-box is-hidden">
+                <div class="service-request-detail-title">
+                    <span>🔔</span>
+                    <div>
+                        <h3>Aktif Servis Çağrısı</h3>
+                        <p id="selectedServiceRequestText">Bu masa için aktif çağrı bulunuyor.</p>
+                    </div>
+                </div>
+
+                <small>Detay ve işlem için üst bardaki Çağrılar panelini kullanın.</small>
+            </div>
+
             <div class="operation-box">
                 <h3>Masa Transferi</h3>
-                <p>Dolu masa seçildiğinde başka boş masaya taşıyabilirsiniz.</p>
+                <p>Dolu masa seçildiğinde müşteriyi başka boş masaya taşıyabilirsiniz.</p>
 
                 <label>Hedef Boş Masa</label>
                 <select id="transferTargetTableSelect" class="form-select rounded-3" disabled>
@@ -278,6 +299,7 @@
                 <h3>Pasif Masa</h3>
                 <p>
                     Bu masa pasif durumda. Müşteri atama, transfer veya boşaltma işlemi yapılamaz.
+                    Gerekirse yönetici hesabıyla Masa Yönetimi ekranından tekrar aktif hale getirilebilir.
                 </p>
             </div>
         </div>

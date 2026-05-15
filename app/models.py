@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from secrets import token_urlsafe
 
 from flask_login import UserMixin
 from sqlalchemy import inspect, text
@@ -9,6 +10,10 @@ from app.extensions import db
 
 def utc_now():
     return datetime.now(timezone.utc)
+
+
+def generate_table_qr_token():
+    return token_urlsafe(18)
 
 
 class User(UserMixin, db.Model):
@@ -105,6 +110,13 @@ class Table(db.Model):
     capacity = db.Column(db.Integer, nullable=False, default=4)
     status = db.Column(db.String(20), nullable=False, default=STATUS_EMPTY)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
+    qr_token = db.Column(
+        db.String(64),
+        nullable=True,
+        unique=True,
+        index=True,
+        default=generate_table_qr_token,
+    )
 
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = db.Column(
@@ -117,6 +129,12 @@ class Table(db.Model):
     area = db.relationship("Area", back_populates="tables")
     sessions = db.relationship(
         "TableSession",
+        back_populates="table",
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+    service_requests = db.relationship(
+        "ServiceRequest",
         back_populates="table",
         cascade="all, delete-orphan",
         lazy=True,
@@ -199,9 +217,59 @@ class TableSession(db.Model):
 
     table = db.relationship("Table", back_populates="sessions")
     customer = db.relationship("Customer", back_populates="sessions")
+    service_requests = db.relationship(
+        "ServiceRequest",
+        back_populates="table_session",
+        lazy=True,
+    )
 
     def __repr__(self):
         return f"<TableSession table_id={self.table_id} status={self.status}>"
+
+
+class ServiceRequest(db.Model):
+    __tablename__ = "service_requests"
+
+    TYPE_WAITER = "waiter"
+    TYPE_BILL = "bill"
+    TYPE_CLEANING = "cleaning"
+    TYPE_OTHER = "other"
+
+    STATUS_OPEN = "open"
+    STATUS_SEEN = "seen"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+
+    id = db.Column(db.Integer, primary_key=True)
+    table_id = db.Column(db.Integer, db.ForeignKey("tables.id"), nullable=False, index=True)
+    table_session_id = db.Column(
+        db.Integer,
+        db.ForeignKey("table_sessions.id"),
+        nullable=True,
+        index=True,
+    )
+
+    request_type = db.Column(db.String(40), nullable=False, index=True)
+    note = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_OPEN, index=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    seen_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    seen_by_user_id = db.Column(db.Integer, nullable=True)
+    completed_by_user_id = db.Column(db.Integer, nullable=True)
+    cancelled_by_user_id = db.Column(db.Integer, nullable=True)
+
+    table = db.relationship("Table", back_populates="service_requests")
+    table_session = db.relationship("TableSession", back_populates="service_requests")
+
+    def __repr__(self):
+        return (
+            f"<ServiceRequest table_id={self.table_id} "
+            f"type={self.request_type} status={self.status}>"
+        )
 
 
 class ActionLog(db.Model):
@@ -231,37 +299,60 @@ class ActionLog(db.Model):
         return f"<ActionLog {self.action_type} {self.created_at}>"
 
 
+def generate_unique_table_qr_token():
+    while True:
+        candidate_token = generate_table_qr_token()
+
+        existing_table = Table.query.filter_by(qr_token=candidate_token).first()
+
+        if existing_table is None:
+            return candidate_token
+
+
 def ensure_customer_schema():
     """
-    Mevcut SQLite veritabanını bozmadan müşteri hafızası için gerekli
-    tablo ve kolonları hazırlar.
+    Mevcut SQLite veritabanını bozmadan müşteri hafızası ve QR servis çağrısı
+    için gerekli tablo/kolonları hazırlar.
 
     Projede şu an ayrı bir migration sistemi olmadığı için bu küçük güvence
     uygulama açılışında çalışır:
     - Yeni kurulumda tüm tabloları oluşturur.
-    - Eski kurulumda customers tablosunu oluşturur.
+    - Eski kurulumda customers ve service_requests tablolarını oluşturur.
     - Eski table_sessions tablosuna customer_id kolonunu ekler.
+    - Eski tables tablosuna qr_token kolonunu ekler.
+    - Mevcut masalara benzersiz QR token üretir.
     """
     db.create_all()
 
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
 
-    if "table_sessions" not in table_names:
-        return
+    if "tables" in table_names:
+        table_columns = {
+            column["name"]
+            for column in inspector.get_columns("tables")
+        }
 
-    table_session_columns = {
-        column["name"]
-        for column in inspector.get_columns("table_sessions")
-    }
+        if "qr_token" not in table_columns:
+            db.session.execute(
+                text("ALTER TABLE tables ADD COLUMN qr_token VARCHAR(64)")
+            )
+            db.session.commit()
 
-    schema_changed = False
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
 
-    if "customer_id" not in table_session_columns:
-        db.session.execute(
-            text("ALTER TABLE table_sessions ADD COLUMN customer_id INTEGER")
-        )
-        schema_changed = True
+    if "table_sessions" in table_names:
+        table_session_columns = {
+            column["name"]
+            for column in inspector.get_columns("table_sessions")
+        }
+
+        if "customer_id" not in table_session_columns:
+            db.session.execute(
+                text("ALTER TABLE table_sessions ADD COLUMN customer_id INTEGER")
+            )
+            db.session.commit()
 
     db.session.execute(
         text(
@@ -279,4 +370,36 @@ def ensure_customer_schema():
         )
     )
 
+    db.session.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ix_tables_qr_token "
+            "ON tables (qr_token)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_service_requests_table_status "
+            "ON service_requests (table_id, status)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_service_requests_session_status "
+            "ON service_requests (table_session_id, status)"
+        )
+    )
+
+    tables_without_token = Table.query.filter(
+        (Table.qr_token.is_(None)) | (Table.qr_token == "")
+    ).all()
+
+    for table in tables_without_token:
+        table.qr_token = generate_unique_table_qr_token()
+
     db.session.commit()
+

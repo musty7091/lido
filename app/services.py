@@ -2,7 +2,7 @@ from datetime import timezone
 
 from app.audit import log_action
 from app.extensions import db
-from app.models import Customer, Table, TableSession, utc_now
+from app.models import Customer, ServiceRequest, Table, TableSession, utc_now
 
 
 def normalize_optional_text(value):
@@ -260,6 +260,16 @@ def clear_table(
     active_session.status = TableSession.STATUS_COMPLETED
     active_session.closed_by_user_id = user_id
 
+    active_service_requests = ServiceRequest.query.filter(
+        ServiceRequest.table_session_id == active_session.id,
+        ServiceRequest.status.in_(ACTIVE_SERVICE_REQUEST_STATUSES),
+    ).all()
+
+    for service_request in active_service_requests:
+        service_request.status = ServiceRequest.STATUS_COMPLETED
+        service_request.completed_at = check_out_time
+        service_request.completed_by_user_id = user_id
+
     table.status = Table.STATUS_EMPTY
 
     log_action(
@@ -280,6 +290,7 @@ def clear_table(
             "customer_id": active_session.customer_id,
             "party_size": active_session.party_size,
             "duration_minutes": duration_minutes,
+            "completed_service_request_count": len(active_service_requests),
             "customer_name": active_session.customer_name,
             "customer_phone": active_session.customer_phone,
         },
@@ -342,6 +353,14 @@ def transfer_table(
 
     active_session.table_id = target_table.id
 
+    active_service_requests = ServiceRequest.query.filter(
+        ServiceRequest.table_session_id == active_session.id,
+        ServiceRequest.status.in_(ACTIVE_SERVICE_REQUEST_STATUSES),
+    ).all()
+
+    for service_request in active_service_requests:
+        service_request.table_id = target_table.id
+
     source_table.status = Table.STATUS_EMPTY
     target_table.status = transferred_status
 
@@ -375,3 +394,261 @@ def transfer_table(
     db.session.commit()
 
     return active_session
+
+
+SERVICE_REQUEST_TYPE_LABELS = {
+    ServiceRequest.TYPE_WAITER: "Garson Çağır",
+    ServiceRequest.TYPE_BILL: "Hesap İste",
+    ServiceRequest.TYPE_CLEANING: "Temizlik / Kül Tablası",
+    ServiceRequest.TYPE_OTHER: "Diğer Not",
+}
+
+SERVICE_REQUEST_STATUS_LABELS = {
+    ServiceRequest.STATUS_OPEN: "Bekliyor",
+    ServiceRequest.STATUS_SEEN: "Görüldü",
+    ServiceRequest.STATUS_COMPLETED: "Tamamlandı",
+    ServiceRequest.STATUS_CANCELLED: "İptal",
+}
+
+ACTIVE_SERVICE_REQUEST_STATUSES = {
+    ServiceRequest.STATUS_OPEN,
+    ServiceRequest.STATUS_SEEN,
+}
+
+
+def get_service_request_type_label(request_type):
+    return SERVICE_REQUEST_TYPE_LABELS.get(request_type, request_type or "-")
+
+
+def get_service_request_status_label(status):
+    return SERVICE_REQUEST_STATUS_LABELS.get(status, status or "-")
+
+
+def get_active_service_request_for_table_and_type(table_id, table_session_id, request_type):
+    query = ServiceRequest.query.filter(
+        ServiceRequest.table_id == table_id,
+        ServiceRequest.request_type == request_type,
+        ServiceRequest.status.in_(ACTIVE_SERVICE_REQUEST_STATUSES),
+    )
+
+    if table_session_id is None:
+        query = query.filter(ServiceRequest.table_session_id.is_(None))
+    else:
+        query = query.filter(ServiceRequest.table_session_id == table_session_id)
+
+    return query.order_by(ServiceRequest.created_at.desc(), ServiceRequest.id.desc()).first()
+
+
+def create_service_request_from_qr(qr_token, request_type, note=None):
+    cleaned_qr_token = normalize_optional_text(qr_token)
+    cleaned_request_type = normalize_optional_text(request_type)
+    cleaned_note = normalize_optional_text(note)
+
+    if cleaned_qr_token is None:
+        raise ValueError("QR bağlantısı geçerli değil.")
+
+    table = Table.query.filter_by(qr_token=cleaned_qr_token).first()
+
+    if table is None:
+        raise ValueError("Bu QR kod sisteme kayıtlı bir masaya ait değil.")
+
+    if table.status == Table.STATUS_INACTIVE:
+        raise ValueError("Bu masa pasif durumda olduğu için çağrı oluşturulamaz.")
+
+    if cleaned_request_type not in SERVICE_REQUEST_TYPE_LABELS:
+        raise ValueError("Geçerli bir çağrı tipi seçmelisiniz.")
+
+    active_session = get_active_session_for_table(table.id)
+
+    if active_session is None:
+        raise ValueError("Bu masa için aktif müşteri oturumu bulunmuyor.")
+
+    existing_request = get_active_service_request_for_table_and_type(
+        table_id=table.id,
+        table_session_id=active_session.id,
+        request_type=cleaned_request_type,
+    )
+
+    if existing_request is not None:
+        return existing_request, False
+
+    service_request = ServiceRequest(
+        table_id=table.id,
+        table_session_id=active_session.id,
+        request_type=cleaned_request_type,
+        note=cleaned_note,
+        status=ServiceRequest.STATUS_OPEN,
+    )
+
+    db.session.add(service_request)
+    db.session.flush()
+
+    log_action(
+        action_type="service_request_created",
+        target_type="table",
+        target_id=table.id,
+        target_label=table.code,
+        username_snapshot="qr_customer",
+        role_snapshot="customer",
+        description=(
+            f"{table.code} masasından {get_service_request_type_label(cleaned_request_type)} çağrısı oluşturuldu."
+        ),
+        extra_data={
+            "service_request_id": service_request.id,
+            "table_id": table.id,
+            "table_code": table.code,
+            "area_name": table.area.name if table.area else None,
+            "table_session_id": active_session.id,
+            "request_type": service_request.request_type,
+            "request_type_label": get_service_request_type_label(service_request.request_type),
+            "note": service_request.note,
+        },
+    )
+
+    db.session.commit()
+
+    return service_request, True
+
+
+def get_active_service_requests():
+    return (
+        ServiceRequest.query
+        .join(Table, ServiceRequest.table_id == Table.id)
+        .filter(ServiceRequest.status.in_(ACTIVE_SERVICE_REQUEST_STATUSES))
+        .order_by(ServiceRequest.created_at.asc(), ServiceRequest.id.asc())
+        .all()
+    )
+
+
+def build_service_request_api_row(service_request):
+    table = service_request.table
+    area_name = "-"
+    table_code = "-"
+
+    if table is not None:
+        table_code = table.code
+        if table.area is not None:
+            area_name = table.area.name
+
+    created_at = service_request.created_at
+
+    elapsed_minutes = 0
+    if created_at is not None:
+        normalized_created_at = created_at
+        if normalized_created_at.tzinfo is None:
+            normalized_created_at = normalized_created_at.replace(tzinfo=timezone.utc)
+        elapsed_seconds = (utc_now() - normalized_created_at).total_seconds()
+        elapsed_minutes = max(0, int(elapsed_seconds // 60))
+
+    return {
+        "id": service_request.id,
+        "table_id": service_request.table_id,
+        "table_code": table_code,
+        "area_name": area_name,
+        "request_type": service_request.request_type,
+        "request_type_label": get_service_request_type_label(service_request.request_type),
+        "status": service_request.status,
+        "status_label": get_service_request_status_label(service_request.status),
+        "note": service_request.note or "",
+        "elapsed_minutes": elapsed_minutes,
+        "elapsed_text": f"{elapsed_minutes} dk önce" if elapsed_minutes > 0 else "Az önce",
+    }
+
+
+def mark_service_request_seen(
+    service_request_id,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    service_request = db.session.get(ServiceRequest, service_request_id)
+
+    if service_request is None:
+        raise ValueError("Servis çağrısı bulunamadı.")
+
+    if service_request.status == ServiceRequest.STATUS_COMPLETED:
+        raise ValueError("Tamamlanmış çağrı tekrar görüldü yapılamaz.")
+
+    if service_request.status == ServiceRequest.STATUS_CANCELLED:
+        raise ValueError("İptal edilmiş çağrı tekrar görüldü yapılamaz.")
+
+    if service_request.status == ServiceRequest.STATUS_OPEN:
+        service_request.status = ServiceRequest.STATUS_SEEN
+        service_request.seen_at = utc_now()
+        service_request.seen_by_user_id = user_id
+
+        log_action(
+            action_type="service_request_seen",
+            target_type="service_request",
+            target_id=service_request.id,
+            target_label=service_request.table.code if service_request.table else str(service_request.id),
+            user_id=user_id,
+            username_snapshot=username_snapshot,
+            role_snapshot=role_snapshot,
+            description=(
+                f"{service_request.table.code if service_request.table else '-'} masası çağrısı görüldü."
+            ),
+            extra_data={
+                "service_request_id": service_request.id,
+                "table_id": service_request.table_id,
+                "table_code": service_request.table.code if service_request.table else None,
+                "request_type": service_request.request_type,
+                "request_type_label": get_service_request_type_label(service_request.request_type),
+            },
+        )
+
+        db.session.commit()
+
+    return service_request
+
+
+def complete_service_request(
+    service_request_id,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    service_request = db.session.get(ServiceRequest, service_request_id)
+
+    if service_request is None:
+        raise ValueError("Servis çağrısı bulunamadı.")
+
+    if service_request.status == ServiceRequest.STATUS_COMPLETED:
+        return service_request
+
+    if service_request.status == ServiceRequest.STATUS_CANCELLED:
+        raise ValueError("İptal edilmiş çağrı tamamlandı yapılamaz.")
+
+    now = utc_now()
+
+    if service_request.status == ServiceRequest.STATUS_OPEN:
+        service_request.seen_at = now
+        service_request.seen_by_user_id = user_id
+
+    service_request.status = ServiceRequest.STATUS_COMPLETED
+    service_request.completed_at = now
+    service_request.completed_by_user_id = user_id
+
+    log_action(
+        action_type="service_request_completed",
+        target_type="service_request",
+        target_id=service_request.id,
+        target_label=service_request.table.code if service_request.table else str(service_request.id),
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"{service_request.table.code if service_request.table else '-'} masası çağrısı tamamlandı."
+        ),
+        extra_data={
+            "service_request_id": service_request.id,
+            "table_id": service_request.table_id,
+            "table_code": service_request.table.code if service_request.table else None,
+            "request_type": service_request.request_type,
+            "request_type_label": get_service_request_type_label(service_request.request_type),
+        },
+    )
+
+    db.session.commit()
+
+    return service_request

@@ -369,6 +369,17 @@
                     </div>
 
                     <div class="admin-user-meta">
+                        {% if table.qr_token %}
+                        <a
+                            href="{{ url_for('public_service_request', qr_token=table.qr_token) }}"
+                            class="btn btn-sm btn-outline-primary rounded-3 fw-bold"
+                            target="_blank"
+                            rel="noopener"
+                        >
+                            QR Çağrı
+                        </a>
+                        {% endif %}
+
                         {% if table.status == "empty" %}
                         <span class="admin-status-active">Boş</span>
                         {% elif table.status == "occupied" %}

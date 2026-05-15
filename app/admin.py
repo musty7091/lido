@@ -68,6 +68,9 @@ ACTION_TYPE_LABELS = {
     "table_capacity_updated": "Masa Kapasitesi Güncellendi",
     "table_activated": "Masa Aktif Edildi",
     "table_deactivated": "Masa Pasifleştirildi",
+    "service_request_created": "Servis Çağrısı Oluşturuldu",
+    "service_request_seen": "Servis Çağrısı Görüldü",
+    "service_request_completed": "Servis Çağrısı Tamamlandı",
 }
 
 
@@ -76,6 +79,7 @@ ROLE_LABELS = {
     User.ROLE_DOOR_STAFF: "Kapı Personeli",
     User.ROLE_BAR_STAFF: "Bar Personeli",
     "system": "Sistem",
+    "customer": "Müşteri",
 }
 
 
@@ -420,6 +424,7 @@ def build_table_view_model(table):
         "status_label": get_table_status_label(table.status),
         "number": table.number,
         "sort_order": table.sort_order,
+        "qr_token": table.qr_token,
         "is_busy": table.status in [Table.STATUS_OCCUPIED, Table.STATUS_LONG],
     }
 
@@ -924,7 +929,7 @@ def users():
 
     return render_template(
         "admin/users.html",
-        app_name="Masa Takip Sistemi",
+        app_name="Lido Masa Takip Sistemi",
         users=user_records,
         role_choices=ROLE_CHOICES,
         form_values=form_values,
@@ -1293,7 +1298,7 @@ def tables():
 
     return render_template(
         "admin/tables.html",
-        app_name="Masa Takip Sistemi",
+        app_name="Lido Masa Takip Sistemi",
         areas=areas,
         active_areas=active_areas,
         selected_area=selected_area,
@@ -1693,7 +1698,7 @@ def customers():
 
     return render_template(
         "admin/customers.html",
-        app_name="Masa Takip Sistemi",
+        app_name="Lido Masa Takip Sistemi",
         customers=customer_rows,
         customer_stats=build_customer_stats(),
         search_text=search_text,
@@ -1760,7 +1765,7 @@ def reports():
 
     return render_template(
         "admin/reports.html",
-        app_name="Masa Takip Sistemi",
+        app_name="Lido Masa Takip Sistemi",
         report_cards=report_cards,
     )
 
@@ -1781,6 +1786,6 @@ def action_logs():
 
     return render_template(
         "admin/action_logs.html",
-        app_name="Masa Takip Sistemi",
+        app_name="Lido Masa Takip Sistemi",
         action_logs=action_logs_view,
     )
