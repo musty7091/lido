@@ -398,6 +398,7 @@ def transfer_table(
 
 SERVICE_REQUEST_TYPE_LABELS = {
     ServiceRequest.TYPE_WAITER: "Garson Çağır",
+    ServiceRequest.TYPE_MENU: "Menü İste",
     ServiceRequest.TYPE_BILL: "Hesap İste",
     ServiceRequest.TYPE_CLEANING: "Temizlik / Kül Tablası",
     ServiceRequest.TYPE_OTHER: "Diğer Not",

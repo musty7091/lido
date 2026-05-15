@@ -472,4 +472,132 @@ def create_app():
             }
         )
 
+
+    @app.route("/qr/t/<qr_token>", methods=["GET", "POST"])
+    def public_service_request(qr_token):
+        table = Table.query.filter_by(qr_token=qr_token).first()
+        request_type_choices = [
+            {
+                "value": request_type,
+                "label": request_type_label,
+            }
+            for request_type, request_type_label in SERVICE_REQUEST_TYPE_LABELS.items()
+        ]
+
+        form_status = None
+        message = ""
+        selected_type = ""
+
+        if table is None:
+            form_status = "error"
+            message = "Bu QR kod sisteme kayıtlı bir masaya ait değil."
+        elif request.method == "POST":
+            selected_type = request.form.get("request_type", "")
+            note = request.form.get("note", "")
+
+            try:
+                service_request, created = create_service_request_from_qr(
+                    qr_token=qr_token,
+                    request_type=selected_type,
+                    note=note,
+                )
+            except ValueError as exc:
+                db.session.rollback()
+                form_status = "error"
+                message = str(exc)
+            except SQLAlchemyError:
+                db.session.rollback()
+                form_status = "error"
+                message = "Talep kaydedilirken veritabanı hatası oluştu."
+            else:
+                form_status = "success"
+                request_type_label = SERVICE_REQUEST_TYPE_LABELS.get(
+                    service_request.request_type,
+                    "Servis çağrısı",
+                )
+
+                if created:
+                    message = f"{request_type_label} talebiniz personele iletildi."
+                else:
+                    message = (
+                        f"Bu masa için açık {request_type_label} talebi zaten var. "
+                        "Personel en kısa sürede ilgilenecek."
+                    )
+
+        return render_template(
+            "service_request_public.html",
+            app_name=app.config["APP_NAME"],
+            table=table,
+            request_type_choices=request_type_choices,
+            form_status=form_status,
+            message=message,
+            selected_type=selected_type,
+        )
+
+    @app.get("/api/service-requests/active")
+    @staff_required
+    def active_service_requests_api():
+        active_service_requests = get_active_service_requests()
+        service_request_rows = [
+            build_service_request_api_row(service_request)
+            for service_request in active_service_requests
+        ]
+
+        return jsonify(
+            {
+                "success": True,
+                "count": len(service_request_rows),
+                "service_requests": service_request_rows,
+            }
+        )
+
+    @app.post("/api/service-requests/<int:service_request_id>/seen")
+    @staff_required
+    def mark_service_request_seen_api(service_request_id):
+        try:
+            service_request = mark_service_request_seen(
+                service_request_id=service_request_id,
+                user_id=current_user.id,
+                username_snapshot=current_user.username,
+                role_snapshot=current_user.role,
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return create_error_response(str(exc), 400)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return create_error_response("Servis çağrısı güncellenirken veritabanı hatası oluştu.", 500)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Servis çağrısı görüldü olarak işaretlendi.",
+                "service_request": build_service_request_api_row(service_request),
+            }
+        )
+
+    @app.post("/api/service-requests/<int:service_request_id>/complete")
+    @staff_required
+    def complete_service_request_api(service_request_id):
+        try:
+            service_request = complete_service_request(
+                service_request_id=service_request_id,
+                user_id=current_user.id,
+                username_snapshot=current_user.username,
+                role_snapshot=current_user.role,
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            return create_error_response(str(exc), 400)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return create_error_response("Servis çağrısı tamamlanırken veritabanı hatası oluştu.", 500)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Servis çağrısı tamamlandı.",
+                "service_request": build_service_request_api_row(service_request),
+            }
+        )
     return app

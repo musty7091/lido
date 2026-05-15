@@ -43,6 +43,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const clearTableButton = document.getElementById("clearTableButton");
 
+    const selectedServiceRequestBox = document.getElementById("selectedServiceRequestBox");
+    const selectedServiceRequestText = document.getElementById("selectedServiceRequestText");
+
     const transferTargetTableSelect = document.getElementById("transferTargetTableSelect");
     const transferTableButton = document.getElementById("transferTableButton");
 
@@ -200,6 +203,21 @@ document.addEventListener("DOMContentLoaded", function () {
         selectedCustomerNoteText.textContent = "-";
     }
 
+    function updateSelectedServiceRequestBox() {
+        if (!selectedServiceRequestBox || !selectedServiceRequestText) {
+            return;
+        }
+
+        if (!selectedTable || Number.parseInt(selectedTable.serviceRequestCount, 10) < 1) {
+            selectedServiceRequestBox.classList.add("is-hidden");
+            selectedServiceRequestText.textContent = "Bu masa için aktif çağrı bulunmuyor.";
+            return;
+        }
+
+        selectedServiceRequestText.textContent = `${selectedTable.serviceRequestLabel} · ${selectedTable.serviceRequestCount} aktif çağrı`;
+        selectedServiceRequestBox.classList.remove("is-hidden");
+    }
+
     function setButtonLoading(button, isLoading, loadingText, normalText) {
         if (isLoading) {
             button.disabled = true;
@@ -282,6 +300,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         clearCustomerForm();
         clearActiveCustomerInfo();
+        updateSelectedServiceRequestBox();
         updateTransferPanel();
         showIdlePanel();
         closeMobileActionPanel();
@@ -316,6 +335,9 @@ document.addEventListener("DOMContentLoaded", function () {
             customerPhone: card.dataset.customerPhone,
             note: card.dataset.note,
             checkInDisplay: card.dataset.checkInDisplay,
+            serviceRequestCount: card.dataset.serviceRequestCount || "0",
+            serviceRequestLabel: card.dataset.serviceRequestLabel || "",
+            serviceRequestStatus: card.dataset.serviceRequestStatus || "",
         };
 
         tableCards.forEach(function (tableCard) {
@@ -346,6 +368,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             clearTableButton.disabled = true;
 
+            updateSelectedServiceRequestBox();
             updateTransferPanel();
             showEmptyTablePanel();
             openMobileActionPanel();
@@ -362,6 +385,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             clearCustomerForm();
             fillActiveCustomerInfo();
+            updateSelectedServiceRequestBox();
             updateTransferPanel();
             showActiveTablePanel();
             openMobileActionPanel();
@@ -377,6 +401,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         clearCustomerForm();
         clearActiveCustomerInfo();
+        updateSelectedServiceRequestBox();
         updateTransferPanel();
         showInactiveTablePanel();
         openMobileActionPanel();

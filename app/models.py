@@ -231,6 +231,7 @@ class ServiceRequest(db.Model):
     __tablename__ = "service_requests"
 
     TYPE_WAITER = "waiter"
+    TYPE_MENU = "menu"
     TYPE_BILL = "bill"
     TYPE_CLEANING = "cleaning"
     TYPE_OTHER = "other"

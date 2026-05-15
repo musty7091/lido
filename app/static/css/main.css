@@ -2405,3 +2405,91 @@ body {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* ADIM 19.1.1 - Masa Yönetimi alan kartları görünüm düzeltmesi */
+.area-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.area-card {
+    background: var(--lido-card);
+    border: 1px solid var(--lido-border);
+    border-radius: 18px;
+    box-shadow: var(--lido-shadow);
+    padding: 16px;
+}
+
+.area-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.area-title h2 {
+    margin: 0;
+    color: var(--lido-text);
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.area-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 15px;
+    background: var(--lido-navy);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 900;
+    flex: 0 0 auto;
+}
+
+.area-numbers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.area-numbers > div {
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 14px;
+    padding: 10px;
+    min-height: 68px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.area-numbers span {
+    display: block;
+    color: var(--lido-muted);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.25;
+    margin-bottom: 5px;
+}
+
+.area-numbers strong {
+    display: block;
+    color: var(--lido-text);
+    font-size: 21px;
+    font-weight: 900;
+    line-height: 1;
+}
+
+@media (max-width: 760px) {
+    .area-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .area-numbers {
+        grid-template-columns: 1fr;
+    }
+}
