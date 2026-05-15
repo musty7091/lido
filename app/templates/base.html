@@ -13,13 +13,12 @@
     <div class="app-shell">
         <header class="topbar">
             <div class="topbar-left">
-                <button class="menu-button" type="button" aria-label="Menü">
-                    ☰
-                </button>
-
-                <div class="brand-box">
-                    <div class="brand-logo">Lido</div>
-                    <div class="brand-subtitle">BEACH</div>
+                <div class="brand-box brand-box-with-image">
+                    <img
+                        src="{{ url_for('static', filename='img/lido.png') }}"
+                        alt="Lido Beach"
+                        class="brand-image"
+                    >
                 </div>
 
                 <div class="brand-title">
@@ -89,6 +88,14 @@
                             <div>
                                 <strong>Masa Yönetimi</strong>
                                 <small>Kapasite ve masa durumlarını yönet</small>
+                            </div>
+                        </a>
+
+                        <a class="profile-menu-item" href="{{ url_for('admin.reports') }}">
+                            <span>📊</span>
+                            <div>
+                                <strong>Raporlar</strong>
+                                <small>Gün özeti, masa ve personel analizleri</small>
                             </div>
                         </a>
 

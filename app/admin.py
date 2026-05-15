@@ -1479,6 +1479,66 @@ def update_table(table_id):
         flash(str(exc), "danger")
         return redirect(url_for("admin.tables", area=table.area.slug))
 
+@admin_bp.route("/reports", methods=["GET"])
+@admin_required
+def reports():
+    report_cards = [
+        {
+            "title": "Genel Gün Özeti",
+            "description": "Seçilen gün için masa hareketleri, toplam müşteri, aktif masa, transfer ve personel işlem özetini gösterir.",
+            "icon": "📊",
+            "status": "İlk yapılacak rapor",
+            "is_primary": True,
+        },
+        {
+            "title": "Masa / Müşteri Raporu",
+            "description": "Hangi masada kaç oturum açıldı, toplam kaç müşteri ağırlandı ve ortalama kişi sayısı nedir?",
+            "icon": "🪑",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+        {
+            "title": "En Çok Tercih Edilen Masalar",
+            "description": "Oturum sayısı ve müşteri sayısına göre en çok kullanılan masaları listeler.",
+            "icon": "⭐",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+        {
+            "title": "Masa Transfer Raporu",
+            "description": "Hangi masadan hangi masaya transfer yapıldı, ne zaman yapıldı ve işlemi kim yaptı?",
+            "icon": "🔁",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+        {
+            "title": "Oturma Süresi Raporu",
+            "description": "Masaların toplam ve ortalama oturma sürelerini analiz eder.",
+            "icon": "⏱️",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+        {
+            "title": "Alan Bazlı Kullanım Raporu",
+            "description": "Alt Bar, Üst Bar, Ana Bar ve diğer alanların kullanım yoğunluğunu karşılaştırır.",
+            "icon": "📍",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+        {
+            "title": "Personel İşlem Raporu",
+            "description": "Personel bazında masa açma, masa boşaltma ve transfer işlemlerini özetler.",
+            "icon": "👥",
+            "status": "Planlandı",
+            "is_primary": False,
+        },
+    ]
+
+    return render_template(
+        "admin/reports.html",
+        app_name="Lido Masa Takip Sistemi",
+        report_cards=report_cards,
+    )
 
 @admin_bp.route("/action-logs", methods=["GET"])
 @admin_required

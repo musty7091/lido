@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="admin-page-header">
+    <div>
+        <h2>Rapor Merkezi</h2>
+        <p>Gün özeti, masa kullanımı, transfer, süre ve personel işlem raporlarını yönetin.</p>
+    </div>
+
+    <a href="{{ url_for('index') }}" class="btn btn-primary rounded-3">
+        🏠 Anasayfa
+    </a>
+</section>
+
+<section class="report-hero-card">
+    <div>
+        <span class="report-hero-label">Altın Vuruş Alanı</span>
+        <h3>İşletmenin günlük hafızası burada oluşacak.</h3>
+        <p>
+            Bu merkez; hangi masalarda kaç müşteri ağırlandığını, en çok tercih edilen alanları,
+            transferleri, oturma sürelerini ve personel hareketlerini tek ekranda takip etmek için hazırlanıyor.
+        </p>
+    </div>
+
+    <div class="report-export-preview">
+        <button type="button" class="btn btn-light rounded-3" disabled>
+            Excel'e Aktar
+        </button>
+        <button type="button" class="btn btn-light rounded-3" disabled>
+            PDF'e Aktar
+        </button>
+        <small>Aktarım butonları rapor detayları tamamlandığında aktif olacak.</small>
+    </div>
+</section>
+
+<section class="reports-grid">
+    {% for report in report_cards %}
+    <article class="report-card {% if report.is_primary %}report-card-primary{% endif %}">
+        <div class="report-card-icon">
+            {{ report.icon }}
+        </div>
+
+        <div class="report-card-body">
+            <div class="report-card-topline">
+                <h3>{{ report.title }}</h3>
+                <span>{{ report.status }}</span>
+            </div>
+
+            <p>{{ report.description }}</p>
+
+            <div class="report-card-actions">
+                {% if report.is_primary %}
+                <button type="button" class="btn btn-primary rounded-3" disabled>
+                    Yakında Açılacak
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-outline-primary rounded-3" disabled>
+                    Planlandı
+                </button>
+                {% endif %}
+
+                <button type="button" class="btn btn-light rounded-3" disabled>
+                    Excel
+                </button>
+
+                <button type="button" class="btn btn-light rounded-3" disabled>
+                    PDF
+                </button>
+            </div>
+        </div>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}
