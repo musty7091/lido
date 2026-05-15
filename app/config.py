@@ -25,4 +25,4 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
 
-    APP_NAME = "Lido Masa Takip Sistemi"
+    APP_NAME = "Masa Takip Sistemi"

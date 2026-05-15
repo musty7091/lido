@@ -13,13 +13,18 @@
     <div class="app-shell">
         <header class="topbar">
             <div class="topbar-left">
-                <div class="brand-box brand-box-with-image">
+                <a
+                    href="{{ url_for('index') }}"
+                    class="brand-box brand-box-with-image"
+                    aria-label="Anasayfaya dön"
+                    title="Anasayfaya dön"
+                >
                     <img
                         src="{{ url_for('static', filename='img/lido.png') }}"
                         alt="Lido Beach"
                         class="brand-image"
                     >
-                </div>
+                </a>
 
                 <div class="brand-title">
                     <h1>{{ app_name }}</h1>

@@ -924,7 +924,7 @@ def users():
 
     return render_template(
         "admin/users.html",
-        app_name="Lido Masa Takip Sistemi",
+        app_name="Masa Takip Sistemi",
         users=user_records,
         role_choices=ROLE_CHOICES,
         form_values=form_values,
@@ -1293,7 +1293,7 @@ def tables():
 
     return render_template(
         "admin/tables.html",
-        app_name="Lido Masa Takip Sistemi",
+        app_name="Masa Takip Sistemi",
         areas=areas,
         active_areas=active_areas,
         selected_area=selected_area,
@@ -1693,7 +1693,7 @@ def customers():
 
     return render_template(
         "admin/customers.html",
-        app_name="Lido Masa Takip Sistemi",
+        app_name="Masa Takip Sistemi",
         customers=customer_rows,
         customer_stats=build_customer_stats(),
         search_text=search_text,
@@ -1760,7 +1760,7 @@ def reports():
 
     return render_template(
         "admin/reports.html",
-        app_name="Lido Masa Takip Sistemi",
+        app_name="Masa Takip Sistemi",
         report_cards=report_cards,
     )
 
@@ -1781,6 +1781,6 @@ def action_logs():
 
     return render_template(
         "admin/action_logs.html",
-        app_name="Lido Masa Takip Sistemi",
+        app_name="Masa Takip Sistemi",
         action_logs=action_logs_view,
     )
