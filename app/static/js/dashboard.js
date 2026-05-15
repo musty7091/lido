@@ -12,6 +12,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const visibleTableCount = document.getElementById("visibleTableCount");
     const tablePanelTitle = document.getElementById("tablePanelTitle");
 
+    const assignmentPanel = document.getElementById("assignmentPanel");
+    const mobilePanelBackdrop = document.getElementById("mobilePanelBackdrop");
+    const mobilePanelCloseButton = document.getElementById("mobilePanelCloseButton");
+
     const selectedTableCode = document.getElementById("selectedTableCode");
     const selectedTableDescription = document.getElementById("selectedTableDescription");
     const selectedTableStatus = document.getElementById("selectedTableStatus");
@@ -45,6 +49,42 @@ document.addEventListener("DOMContentLoaded", function () {
     let selectedTable = null;
     let activeAreaKey = "all";
     let activeAreaName = "Tüm Masalar";
+
+    function isMobileActionPanelMode() {
+        return window.matchMedia("(max-width: 820px)").matches;
+    }
+
+    function openMobileActionPanel() {
+        if (!assignmentPanel || !isMobileActionPanelMode()) {
+            return;
+        }
+
+        assignmentPanel.classList.add("is-mobile-open");
+
+        if (mobilePanelBackdrop) {
+            mobilePanelBackdrop.classList.add("is-visible");
+        }
+
+        document.body.classList.add("mobile-action-open");
+    }
+
+    function closeMobileActionPanel() {
+        if (assignmentPanel) {
+            assignmentPanel.classList.remove("is-mobile-open");
+        }
+
+        if (mobilePanelBackdrop) {
+            mobilePanelBackdrop.classList.remove("is-visible");
+        }
+
+        document.body.classList.remove("mobile-action-open");
+    }
+
+    function handleViewportChange() {
+        if (!isMobileActionPanelMode()) {
+            closeMobileActionPanel();
+        }
+    }
 
     function initializeOccupancyBars() {
         occupancyBars.forEach(function (bar) {
@@ -244,6 +284,7 @@ document.addEventListener("DOMContentLoaded", function () {
         clearActiveCustomerInfo();
         updateTransferPanel();
         showIdlePanel();
+        closeMobileActionPanel();
     }
 
     function resetSelectedTableIfHidden() {
@@ -307,6 +348,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             updateTransferPanel();
             showEmptyTablePanel();
+            openMobileActionPanel();
             return;
         }
 
@@ -322,6 +364,7 @@ document.addEventListener("DOMContentLoaded", function () {
             fillActiveCustomerInfo();
             updateTransferPanel();
             showActiveTablePanel();
+            openMobileActionPanel();
             return;
         }
 
@@ -336,6 +379,7 @@ document.addEventListener("DOMContentLoaded", function () {
         clearActiveCustomerInfo();
         updateTransferPanel();
         showInactiveTablePanel();
+        openMobileActionPanel();
     }
 
     function setActiveArea(button) {
@@ -569,6 +613,16 @@ document.addEventListener("DOMContentLoaded", function () {
             transferTableButton.textContent = normalText;
         }
     });
+
+    if (mobilePanelCloseButton) {
+        mobilePanelCloseButton.addEventListener("click", closeMobileActionPanel);
+    }
+
+    if (mobilePanelBackdrop) {
+        mobilePanelBackdrop.addEventListener("click", closeMobileActionPanel);
+    }
+
+    window.addEventListener("resize", handleViewportChange);
 
     initializeOccupancyBars();
     applyFilters();
