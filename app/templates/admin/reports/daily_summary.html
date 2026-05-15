@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="admin-page-header">
+    <div>
+        <h2>Genel Gün Özeti</h2>
+        <p>{{ report.selected_date_display }} tarihli masa, müşteri, transfer ve personel işlem özeti.</p>
+    </div>
+
+    <div class="admin-page-actions">
+        <a href="{{ url_for('admin.reports') }}" class="btn btn-light rounded-3">
+            Rapor Merkezi
+        </a>
+
+        <a href="{{ url_for('index') }}" class="btn btn-primary rounded-3">
+            🏠 Anasayfa
+        </a>
+    </div>
+</section>
+
+<section class="daily-report-filter-card">
+    <form method="get" action="{{ url_for('admin_reports.daily_summary') }}">
+        <div class="daily-report-filter-grid">
+            <div>
+                <label class="form-label fw-semibold">Rapor Tarihi</label>
+                <input
+                    type="date"
+                    name="date"
+                    class="form-control form-control-lg rounded-3"
+                    value="{{ report.selected_date_value }}"
+                    required
+                >
+            </div>
+
+            <div class="daily-report-filter-actions">
+                <button type="submit" class="btn btn-primary btn-lg rounded-3 fw-bold">
+                    Raporu Getir
+                </button>
+
+                <button type="button" class="btn btn-light btn-lg rounded-3 fw-bold" disabled>
+                    Excel'e Aktar
+                </button>
+
+                <button type="button" class="btn btn-light btn-lg rounded-3 fw-bold" disabled>
+                    PDF'e Aktar
+                </button>
+            </div>
+        </div>
+    </form>
+</section>
+
+<section class="daily-summary-grid">
+    {% for card in report.summary_cards %}
+    <article class="daily-summary-card">
+        <span>{{ card.label }}</span>
+        <strong>{{ card.value }}</strong>
+        <small>{{ card.hint }}</small>
+    </article>
+    {% endfor %}
+</section>
+
+<section class="daily-highlight-grid">
+    <article class="daily-highlight-card">
+        <span>En Çok Kullanılan Alan</span>
+        <strong>{{ report.most_used_area }}</strong>
+    </article>
+
+    <article class="daily-highlight-card">
+        <span>En Çok Kullanılan Masa</span>
+        <strong>{{ report.most_used_table }}</strong>
+    </article>
+</section>
+
+<section class="daily-report-section">
+    <div class="daily-report-section-title">
+        <h3>Alan Bazlı Özet</h3>
+        <p>Seçilen günde alanlara göre açılan oturum, müşteri ve oturma süresi.</p>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table daily-report-table align-middle">
+            <thead>
+                <tr>
+                    <th>Alan</th>
+                    <th class="text-end">Oturum</th>
+                    <th class="text-end">Müşteri</th>
+                    <th class="text-end">Kapanan</th>
+                    <th class="text-end">Toplam Süre</th>
+                    <th class="text-end">Ortalama Süre</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.area_rows %}
+                <tr>
+                    <td><strong>{{ row.area_name }}</strong></td>
+                    <td class="text-end">{{ row.session_count }}</td>
+                    <td class="text-end">{{ row.guest_count }}</td>
+                    <td class="text-end">{{ row.completed_count }}</td>
+                    <td class="text-end">{{ row.total_duration }}</td>
+                    <td class="text-end">{{ row.average_duration }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        Bu tarih için alan bazlı veri bulunmuyor.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="daily-report-two-column">
+    <div class="daily-report-section">
+        <div class="daily-report-section-title">
+            <h3>En Çok Kullanılan Masalar</h3>
+            <p>İlk 10 masa listelenir.</p>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table daily-report-table align-middle">
+                <thead>
+                    <tr>
+                        <th>Masa</th>
+                        <th>Alan</th>
+                        <th class="text-end">Oturum</th>
+                        <th class="text-end">Müşteri</th>
+                        <th class="text-end">Ort. Süre</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.table_rows %}
+                    <tr>
+                        <td><strong>{{ row.table_code }}</strong></td>
+                        <td>{{ row.area_name }}</td>
+                        <td class="text-end">{{ row.session_count }}</td>
+                        <td class="text-end">{{ row.guest_count }}</td>
+                        <td class="text-end">{{ row.average_duration }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            Bu tarih için masa kullanımı bulunmuyor.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="daily-report-section">
+        <div class="daily-report-section-title">
+            <h3>Personel İşlem Özeti</h3>
+            <p>Masa açma, boşaltma ve transfer hareketleri.</p>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table daily-report-table align-middle">
+                <thead>
+                    <tr>
+                        <th>Personel</th>
+                        <th class="text-end">Açma</th>
+                        <th class="text-end">Boşaltma</th>
+                        <th class="text-end">Transfer</th>
+                        <th class="text-end">Toplam</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.staff_rows %}
+                    <tr>
+                        <td>
+                            <strong>{{ row.username }}</strong>
+                            <small class="d-block text-muted">{{ row.role }}</small>
+                        </td>
+                        <td class="text-end">{{ row.assigned_count }}</td>
+                        <td class="text-end">{{ row.cleared_count }}</td>
+                        <td class="text-end">{{ row.transfer_count }}</td>
+                        <td class="text-end"><strong>{{ row.total_count }}</strong></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            Bu tarih için personel işlemi bulunmuyor.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<section class="daily-report-section">
+    <div class="daily-report-section-title">
+        <h3>Masa Transferleri</h3>
+        <p>Seçilen günde yapılan masa transferleri.</p>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table daily-report-table align-middle">
+            <thead>
+                <tr>
+                    <th>Saat</th>
+                    <th>Kaynak Masa</th>
+                    <th>Hedef Masa</th>
+                    <th class="text-end">Kişi</th>
+                    <th>Müşteri</th>
+                    <th>Personel</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.transfer_rows %}
+                <tr>
+                    <td>{{ row.time }}</td>
+                    <td><strong>{{ row.old_table_code }}</strong> <small class="text-muted">/ {{ row.old_area_name }}</small></td>
+                    <td><strong>{{ row.new_table_code }}</strong> <small class="text-muted">/ {{ row.new_area_name }}</small></td>
+                    <td class="text-end">{{ row.party_size }}</td>
+                    <td>{{ row.customer_name }}</td>
+                    <td>{{ row.username }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        Bu tarih için masa transferi bulunmuyor.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="daily-report-section">
+    <div class="daily-report-section-title">
+        <h3>Günlük Masa Hareketleri</h3>
+        <p>Seçilen günde açılan masa oturumları.</p>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table daily-report-table align-middle">
+            <thead>
+                <tr>
+                    <th>Masa</th>
+                    <th>Alan</th>
+                    <th class="text-end">Kişi</th>
+                    <th>Müşteri</th>
+                    <th>Telefon</th>
+                    <th>Giriş</th>
+                    <th>Çıkış</th>
+                    <th>Süre</th>
+                    <th>Durum</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.session_rows %}
+                <tr>
+                    <td><strong>{{ row.table_code }}</strong></td>
+                    <td>{{ row.area_name }}</td>
+                    <td class="text-end">{{ row.party_size }}</td>
+                    <td>{{ row.customer_name }}</td>
+                    <td>{{ row.customer_phone }}</td>
+                    <td>{{ row.check_in }}</td>
+                    <td>{{ row.check_out }}</td>
+                    <td>{{ row.duration }}</td>
+                    <td>
+                        <span class="daily-status-pill">{{ row.status_label }}</span>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-4">
+                        Bu tarih için masa hareketi bulunmuyor.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

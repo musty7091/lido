@@ -43,16 +43,16 @@
         <div class="report-card-body">
             <div class="report-card-topline">
                 <h3>{{ report.title }}</h3>
-                <span>{{ report.status }}</span>
+                <span>{% if report.is_primary %}Aktif{% else %}{{ report.status }}{% endif %}</span>
             </div>
 
             <p>{{ report.description }}</p>
 
             <div class="report-card-actions">
                 {% if report.is_primary %}
-                <button type="button" class="btn btn-primary rounded-3" disabled>
-                    Yakında Açılacak
-                </button>
+                <a href="{{ url_for('admin_reports.daily_summary') }}" class="btn btn-primary rounded-3">
+                    Raporu Aç
+                </a>
                 {% else %}
                 <button type="button" class="btn btn-outline-primary rounded-3" disabled>
                     Planlandı

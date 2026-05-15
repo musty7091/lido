@@ -11,6 +11,7 @@ from app.config import Config, INSTANCE_DIR
 from app.extensions import csrf, db, login_manager
 from app.models import Area, Table, TableSession, User, utc_now
 from app.permissions import staff_required
+from app.reports import reports_bp
 from app.services import assign_table, clear_table, transfer_table
 
 
@@ -267,6 +268,7 @@ def create_app():
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(reports_bp)
 
     @app.before_request
     def enforce_default_password_change():

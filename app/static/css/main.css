@@ -1751,3 +1751,198 @@ body {
         height: 48px;
     }
 }
+.daily-report-filter-card {
+    background: var(--lido-card);
+    border: 1px solid var(--lido-border);
+    border-radius: 18px;
+    box-shadow: var(--lido-shadow);
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.daily-report-filter-grid {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 14px;
+    align-items: end;
+}
+
+.daily-report-filter-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.daily-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.daily-summary-card {
+    background: var(--lido-card);
+    border: 1px solid var(--lido-border);
+    border-radius: 18px;
+    box-shadow: var(--lido-shadow);
+    padding: 15px;
+}
+
+.daily-summary-card span {
+    display: block;
+    color: var(--lido-muted);
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 7px;
+}
+
+.daily-summary-card strong {
+    display: block;
+    color: var(--lido-text);
+    font-size: 26px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.daily-summary-card small {
+    display: block;
+    color: var(--lido-muted);
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 7px;
+    line-height: 1.35;
+}
+
+.daily-highlight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.daily-highlight-card {
+    background: linear-gradient(135deg, var(--lido-navy), var(--lido-navy-soft));
+    color: #ffffff;
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: var(--lido-shadow);
+}
+
+.daily-highlight-card span {
+    display: block;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.daily-highlight-card strong {
+    display: block;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+.daily-report-two-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+
+.daily-report-section {
+    background: var(--lido-card);
+    border: 1px solid var(--lido-border);
+    border-radius: 18px;
+    box-shadow: var(--lido-shadow);
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.daily-report-section-title {
+    margin-bottom: 14px;
+}
+
+.daily-report-section-title h3 {
+    margin: 0;
+    color: var(--lido-text);
+    font-size: 19px;
+    font-weight: 900;
+}
+
+.daily-report-section-title p {
+    margin: 4px 0 0;
+    color: var(--lido-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.daily-report-table {
+    margin-bottom: 0;
+}
+
+.daily-report-table thead th {
+    color: var(--lido-muted);
+    font-size: 12px;
+    font-weight: 900;
+    border-bottom: 1px solid var(--lido-border);
+    white-space: nowrap;
+}
+
+.daily-report-table tbody td {
+    color: var(--lido-text);
+    font-size: 13px;
+    font-weight: 700;
+    border-bottom: 1px solid #eef2f7;
+    vertical-align: middle;
+}
+
+.daily-status-pill {
+    display: inline-flex;
+    width: fit-content;
+    background: #eef3ff;
+    color: var(--lido-navy);
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+    .daily-summary-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .daily-report-two-column {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 760px) {
+    .daily-report-filter-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .daily-report-filter-actions {
+        justify-content: stretch;
+    }
+
+    .daily-report-filter-actions .btn {
+        width: 100%;
+    }
+
+    .daily-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .daily-highlight-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 520px) {
+    .daily-summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
