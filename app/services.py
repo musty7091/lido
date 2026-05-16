@@ -1,8 +1,23 @@
-from datetime import timezone
+from datetime import datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 from app.audit import log_action
 from app.extensions import db
-from app.models import Customer, ServiceRequest, Table, TableSession, utc_now
+from app.models import Customer, Reservation, ServiceRequest, Table, TableSession, utc_now
+
+
+DISPLAY_TIMEZONE = ZoneInfo("Europe/Istanbul")
+
+
+def ensure_utc_datetime(value):
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc)
 
 
 def normalize_optional_text(value):
@@ -44,6 +59,104 @@ def normalize_phone_number(value):
     return digits
 
 
+def parse_reservation_local_datetime(date_value, time_value):
+    cleaned_date = normalize_optional_text(date_value)
+    cleaned_time = normalize_optional_text(time_value)
+
+    if cleaned_date is None:
+        raise ValueError("Rezervasyon tarihi zorunludur.")
+
+    if cleaned_time is None:
+        raise ValueError("Rezervasyon saati zorunludur.")
+
+    try:
+        parsed_date = datetime.strptime(cleaned_date, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("Rezervasyon tarihi geçerli değil.") from exc
+
+    try:
+        parsed_time = datetime.strptime(cleaned_time, "%H:%M").time()
+    except ValueError as exc:
+        raise ValueError("Rezervasyon saati geçerli değil.") from exc
+
+    local_datetime = datetime.combine(parsed_date, parsed_time).replace(
+        tzinfo=DISPLAY_TIMEZONE
+    )
+
+    return ensure_utc_datetime(local_datetime)
+
+
+def parse_positive_minutes(value, default_value, field_label):
+    cleaned_value = normalize_optional_text(value)
+
+    if cleaned_value is None:
+        return default_value
+
+    try:
+        parsed_value = int(cleaned_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_label} geçerli bir sayı olmalıdır.") from exc
+
+    if parsed_value < 1:
+        raise ValueError(f"{field_label} en az 1 dakika olmalıdır.")
+
+    if parsed_value > 1440:
+        raise ValueError(f"{field_label} 1440 dakikadan fazla olamaz.")
+
+    return parsed_value
+
+
+def parse_deposit_amount_tl(value):
+    cleaned_value = normalize_optional_text(value)
+
+    if cleaned_value is None:
+        return None
+
+    cleaned_value = (
+        cleaned_value
+        .replace("TL", "")
+        .replace("tl", "")
+        .replace("₺", "")
+        .replace(" ", "")
+        .strip()
+    )
+
+    if cleaned_value == "":
+        return None
+
+    if "," in cleaned_value and "." in cleaned_value:
+        cleaned_value = cleaned_value.replace(".", "").replace(",", ".")
+    elif "," in cleaned_value:
+        cleaned_value = cleaned_value.replace(",", ".")
+
+    try:
+        deposit_amount = Decimal(cleaned_value)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("Kapora tutarı geçerli bir TL tutarı olmalıdır.") from exc
+
+    if deposit_amount < Decimal("0"):
+        raise ValueError("Kapora tutarı negatif olamaz.")
+
+    if deposit_amount > Decimal("999999999.99"):
+        raise ValueError("Kapora tutarı çok yüksek görünüyor.")
+
+    return deposit_amount.quantize(Decimal("0.01"))
+
+
+def normalize_reservation_phone_or_raise(value):
+    cleaned_phone = normalize_optional_text(value)
+
+    if cleaned_phone is None:
+        raise ValueError("Rezervasyon için telefon zorunludur.")
+
+    phone_normalized = normalize_phone_number(cleaned_phone)
+
+    if phone_normalized is None:
+        raise ValueError("Rezervasyon telefonu geçerli değil. Örnek: 05338463131")
+
+    return cleaned_phone, phone_normalized
+
+
 def parse_table_id(value):
     try:
         table_id = int(value)
@@ -79,6 +192,45 @@ def get_active_session_for_table(table_id):
         )
         .order_by(TableSession.check_in_at.desc())
         .first()
+    )
+
+
+def format_reservation_datetime_for_message(value):
+    if value is None:
+        return "-"
+
+    normalized_value = value
+
+    if normalized_value.tzinfo is None:
+        normalized_value = normalized_value.replace(tzinfo=timezone.utc)
+
+    local_value = normalized_value.astimezone(DISPLAY_TIMEZONE)
+
+    return local_value.strftime("%d.%m.%Y %H:%M")
+
+
+def build_reservation_assignment_block_message(reservation, operation_label="müşteri ataması"):
+    table_code = "-"
+
+    if reservation.table is not None:
+        table_code = reservation.table.code
+
+    reservation_time_text = format_reservation_datetime_for_message(
+        reservation.reservation_at
+    )
+    customer_name = reservation.customer_name or "İsimsiz müşteri"
+    customer_phone = reservation.customer_phone or "-"
+    party_size = reservation.party_size or "-"
+    protection_minutes = (
+        reservation.protection_minutes
+        or Reservation.DEFAULT_PROTECTION_MINUTES
+    )
+
+    return (
+        f"{table_code} masasında {reservation_time_text} rezervasyonu var. "
+        f"Rezervasyon koruma süresi ({protection_minutes} dk) başladığı için "
+        f"bu masaya {operation_label} yapılamaz. "
+        f"Rezervasyon: {customer_name} / {customer_phone} / {party_size} kişi."
     )
 
 
@@ -153,6 +305,16 @@ def assign_table(
 
     if active_session is not None:
         raise ValueError("Bu masa için zaten aktif bir müşteri oturumu var.")
+
+    blocking_reservation = get_blocking_reservation_for_table(table.id)
+
+    if blocking_reservation is not None:
+        raise ValueError(
+            build_reservation_assignment_block_message(
+                blocking_reservation,
+                operation_label="müşteri ataması",
+            )
+        )
 
     parsed_party_size = parse_party_size(party_size)
     cleaned_customer_name = normalize_optional_text(customer_name)
@@ -345,6 +507,16 @@ def transfer_table(
     if target_active_session is not None:
         raise ValueError("Hedef masa için zaten aktif müşteri oturumu var.")
 
+    blocking_reservation = get_blocking_reservation_for_table(target_table.id)
+
+    if blocking_reservation is not None:
+        raise ValueError(
+            build_reservation_assignment_block_message(
+                blocking_reservation,
+                operation_label="transfer",
+            )
+        )
+
     old_table_code = source_table.code
     old_area_name = source_table.area.name
     new_table_code = target_table.code
@@ -394,6 +566,519 @@ def transfer_table(
     db.session.commit()
 
     return active_session
+
+
+RESERVATION_STATUS_LABELS = {
+    Reservation.STATUS_CONFIRMED: "Onaylandı",
+    Reservation.STATUS_SEATED: "Masaya Alındı",
+    Reservation.STATUS_COMPLETED: "Tamamlandı",
+    Reservation.STATUS_CANCELLED: "İptal",
+    Reservation.STATUS_NO_SHOW: "Gelmedi",
+}
+
+ACTIVE_RESERVATION_STATUSES = {
+    Reservation.STATUS_CONFIRMED,
+    Reservation.STATUS_SEATED,
+}
+
+
+def get_reservation_status_label(status):
+    return RESERVATION_STATUS_LABELS.get(status, status or "-")
+
+
+def find_or_create_customer_for_reservation(customer_name=None, customer_phone=None):
+    cleaned_customer_name = normalize_optional_text(customer_name)
+    cleaned_customer_phone, phone_normalized = normalize_reservation_phone_or_raise(customer_phone)
+    customer = Customer.query.filter_by(phone_normalized=phone_normalized).first()
+    now = utc_now()
+
+    if customer is None:
+        customer = Customer(
+            full_name=cleaned_customer_name,
+            phone_raw=cleaned_customer_phone,
+            phone_normalized=phone_normalized,
+            first_seen_at=now,
+            last_seen_at=now,
+            visit_count=0,
+            reservation_count=0,
+            no_show_count=0,
+            is_active=True,
+        )
+        db.session.add(customer)
+        db.session.flush()
+        match_status = "created"
+    else:
+        if cleaned_customer_name is not None:
+            customer.full_name = cleaned_customer_name
+
+        customer.phone_raw = cleaned_customer_phone
+        customer.last_seen_at = now
+        customer.is_active = True
+        match_status = "matched"
+
+    return customer, phone_normalized, match_status
+
+
+def get_reservation_conflict(table_id, reservation_at, expected_end_at, exclude_reservation_id=None):
+    conflict_query = Reservation.query.filter(
+        Reservation.table_id == table_id,
+        Reservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        Reservation.reservation_at < expected_end_at,
+        Reservation.expected_end_at > reservation_at,
+    )
+
+    if exclude_reservation_id is not None:
+        conflict_query = conflict_query.filter(Reservation.id != exclude_reservation_id)
+
+    return conflict_query.order_by(Reservation.reservation_at.asc()).first()
+
+
+def create_reservation(
+    table_id,
+    reservation_date,
+    reservation_time,
+    party_size,
+    customer_name=None,
+    customer_phone=None,
+    deposit_amount_tl=None,
+    deposit_note=None,
+    note=None,
+    duration_minutes=None,
+    protection_minutes=None,
+    no_show_tolerance_minutes=None,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    parsed_table_id = parse_table_id(table_id)
+    table = db.session.get(Table, parsed_table_id)
+
+    if table is None:
+        raise ValueError("Rezervasyon yapılacak masa bulunamadı.")
+
+    if table.status == Table.STATUS_INACTIVE:
+        raise ValueError("Pasif durumdaki masaya rezervasyon alınamaz.")
+
+    parsed_party_size = parse_party_size(party_size)
+    reservation_at = parse_reservation_local_datetime(reservation_date, reservation_time)
+
+    if reservation_at <= ensure_utc_datetime(utc_now()):
+        raise ValueError("Rezervasyon tarihi ve saati ileri bir zaman olmalıdır.")
+
+    parsed_duration_minutes = parse_positive_minutes(
+        duration_minutes,
+        Reservation.DEFAULT_DURATION_MINUTES,
+        "Rezervasyon süresi",
+    )
+    parsed_protection_minutes = parse_positive_minutes(
+        protection_minutes,
+        Reservation.DEFAULT_PROTECTION_MINUTES,
+        "Hazırlık / koruma süresi",
+    )
+    parsed_no_show_tolerance_minutes = parse_positive_minutes(
+        no_show_tolerance_minutes,
+        Reservation.DEFAULT_NO_SHOW_TOLERANCE_MINUTES,
+        "Geç kalma toleransı",
+    )
+    expected_end_at = reservation_at + timedelta(minutes=parsed_duration_minutes)
+
+    conflict_reservation = get_reservation_conflict(
+        table_id=table.id,
+        reservation_at=reservation_at,
+        expected_end_at=expected_end_at,
+    )
+
+    if conflict_reservation is not None:
+        raise ValueError(
+            f"{table.code} masasında bu saat aralığıyla çakışan başka bir rezervasyon var."
+        )
+
+    cleaned_customer_name = normalize_optional_text(customer_name)
+    cleaned_deposit_note = normalize_optional_text(deposit_note)
+    cleaned_note = normalize_optional_text(note)
+    parsed_deposit_amount_tl = parse_deposit_amount_tl(deposit_amount_tl)
+
+    customer, phone_normalized, customer_match_status = find_or_create_customer_for_reservation(
+        customer_name=cleaned_customer_name,
+        customer_phone=customer_phone,
+    )
+
+    customer.reservation_count = (customer.reservation_count or 0) + 1
+
+    reservation = Reservation(
+        table_id=table.id,
+        customer_id=customer.id,
+        customer_name=cleaned_customer_name,
+        customer_phone=normalize_optional_text(customer_phone),
+        customer_phone_normalized=phone_normalized,
+        party_size=parsed_party_size,
+        reservation_at=reservation_at,
+        expected_end_at=expected_end_at,
+        duration_minutes=parsed_duration_minutes,
+        protection_minutes=parsed_protection_minutes,
+        no_show_tolerance_minutes=parsed_no_show_tolerance_minutes,
+        deposit_amount_tl=parsed_deposit_amount_tl,
+        deposit_note=cleaned_deposit_note,
+        note=cleaned_note,
+        status=Reservation.STATUS_CONFIRMED,
+        created_by_user_id=user_id,
+    )
+
+    db.session.add(reservation)
+    db.session.flush()
+
+    log_action(
+        action_type="reservation_created",
+        target_type="reservation",
+        target_id=reservation.id,
+        target_label=f"{table.code} - {reservation_at.isoformat()}",
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"{table.code} masasına {parsed_party_size} kişilik rezervasyon alındı."
+        ),
+        extra_data={
+            "reservation_id": reservation.id,
+            "table_id": table.id,
+            "table_code": table.code,
+            "area_name": table.area.name if table.area else None,
+            "customer_id": customer.id,
+            "customer_name": reservation.customer_name,
+            "customer_phone": reservation.customer_phone,
+            "customer_phone_normalized": phone_normalized,
+            "customer_match_status": customer_match_status,
+            "party_size": parsed_party_size,
+            "reservation_at": reservation.reservation_at.isoformat(),
+            "expected_end_at": reservation.expected_end_at.isoformat(),
+            "duration_minutes": parsed_duration_minutes,
+            "protection_minutes": parsed_protection_minutes,
+            "no_show_tolerance_minutes": parsed_no_show_tolerance_minutes,
+            "deposit_amount_tl": str(parsed_deposit_amount_tl) if parsed_deposit_amount_tl is not None else None,
+            "deposit_note": reservation.deposit_note,
+            "note": reservation.note,
+        },
+    )
+
+    db.session.commit()
+
+    return reservation
+
+
+def update_reservation(
+    reservation_id,
+    table_id,
+    reservation_date,
+    reservation_time,
+    party_size,
+    customer_name=None,
+    customer_phone=None,
+    deposit_amount_tl=None,
+    deposit_note=None,
+    note=None,
+    duration_minutes=None,
+    protection_minutes=None,
+    no_show_tolerance_minutes=None,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    reservation = db.session.get(Reservation, reservation_id)
+
+    if reservation is None:
+        raise ValueError("Rezervasyon bulunamadı.")
+
+    if reservation.status != Reservation.STATUS_CONFIRMED:
+        raise ValueError("Sadece onaylı rezervasyonlar düzenlenebilir.")
+
+    parsed_table_id = parse_table_id(table_id)
+    table = db.session.get(Table, parsed_table_id)
+
+    if table is None:
+        raise ValueError("Rezervasyonun atanacağı masa bulunamadı.")
+
+    if table.status == Table.STATUS_INACTIVE:
+        raise ValueError("Pasif durumdaki masaya rezervasyon taşınamaz.")
+
+    parsed_party_size = parse_party_size(party_size)
+    reservation_at = parse_reservation_local_datetime(reservation_date, reservation_time)
+
+    if reservation_at <= ensure_utc_datetime(utc_now()):
+        raise ValueError("Rezervasyon tarihi ve saati ileri bir zaman olmalıdır.")
+
+    parsed_duration_minutes = parse_positive_minutes(
+        duration_minutes,
+        reservation.duration_minutes or Reservation.DEFAULT_DURATION_MINUTES,
+        "Rezervasyon süresi",
+    )
+    parsed_protection_minutes = parse_positive_minutes(
+        protection_minutes,
+        reservation.protection_minutes or Reservation.DEFAULT_PROTECTION_MINUTES,
+        "Hazırlık / koruma süresi",
+    )
+    parsed_no_show_tolerance_minutes = parse_positive_minutes(
+        no_show_tolerance_minutes,
+        reservation.no_show_tolerance_minutes or Reservation.DEFAULT_NO_SHOW_TOLERANCE_MINUTES,
+        "Geç kalma toleransı",
+    )
+    expected_end_at = reservation_at + timedelta(minutes=parsed_duration_minutes)
+
+    conflict_reservation = get_reservation_conflict(
+        table_id=table.id,
+        reservation_at=reservation_at,
+        expected_end_at=expected_end_at,
+        exclude_reservation_id=reservation.id,
+    )
+
+    if conflict_reservation is not None:
+        raise ValueError(
+            f"{table.code} masasında bu saat aralığıyla çakışan başka bir rezervasyon var."
+        )
+
+    cleaned_customer_name = normalize_optional_text(customer_name)
+    cleaned_customer_phone = normalize_optional_text(customer_phone)
+    cleaned_deposit_note = normalize_optional_text(deposit_note)
+    cleaned_note = normalize_optional_text(note)
+    parsed_deposit_amount_tl = parse_deposit_amount_tl(deposit_amount_tl)
+
+    old_table = reservation.table
+    old_customer = reservation.customer
+    old_customer_id = reservation.customer_id
+    old_snapshot = {
+        "table_id": reservation.table_id,
+        "table_code": old_table.code if old_table is not None else None,
+        "customer_id": reservation.customer_id,
+        "customer_name": reservation.customer_name,
+        "customer_phone": reservation.customer_phone,
+        "party_size": reservation.party_size,
+        "reservation_at": reservation.reservation_at.isoformat() if reservation.reservation_at else None,
+        "expected_end_at": reservation.expected_end_at.isoformat() if reservation.expected_end_at else None,
+        "duration_minutes": reservation.duration_minutes,
+        "protection_minutes": reservation.protection_minutes,
+        "no_show_tolerance_minutes": reservation.no_show_tolerance_minutes,
+        "deposit_amount_tl": str(reservation.deposit_amount_tl) if reservation.deposit_amount_tl is not None else None,
+        "deposit_note": reservation.deposit_note,
+        "note": reservation.note,
+    }
+
+    customer, phone_normalized, customer_match_status = find_or_create_customer_for_reservation(
+        customer_name=cleaned_customer_name,
+        customer_phone=cleaned_customer_phone,
+    )
+
+    if old_customer_id != customer.id:
+        if old_customer is not None:
+            old_customer.reservation_count = max((old_customer.reservation_count or 0) - 1, 0)
+
+        customer.reservation_count = (customer.reservation_count or 0) + 1
+
+    reservation.table_id = table.id
+    reservation.customer_id = customer.id
+    reservation.customer_name = cleaned_customer_name
+    reservation.customer_phone = cleaned_customer_phone
+    reservation.customer_phone_normalized = phone_normalized
+    reservation.party_size = parsed_party_size
+    reservation.reservation_at = reservation_at
+    reservation.expected_end_at = expected_end_at
+    reservation.duration_minutes = parsed_duration_minutes
+    reservation.protection_minutes = parsed_protection_minutes
+    reservation.no_show_tolerance_minutes = parsed_no_show_tolerance_minutes
+    reservation.deposit_amount_tl = parsed_deposit_amount_tl
+    reservation.deposit_note = cleaned_deposit_note
+    reservation.note = cleaned_note
+    reservation.updated_by_user_id = user_id
+
+    db.session.flush()
+
+    log_action(
+        action_type="reservation_updated",
+        target_type="reservation",
+        target_id=reservation.id,
+        target_label=f"{table.code} - {reservation_at.isoformat()}",
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"{table.code} masasına ait rezervasyon güncellendi."
+        ),
+        extra_data={
+            "reservation_id": reservation.id,
+            "old": old_snapshot,
+            "new": {
+                "table_id": table.id,
+                "table_code": table.code,
+                "area_name": table.area.name if table.area else None,
+                "customer_id": customer.id,
+                "customer_name": reservation.customer_name,
+                "customer_phone": reservation.customer_phone,
+                "customer_phone_normalized": phone_normalized,
+                "customer_match_status": customer_match_status,
+                "party_size": parsed_party_size,
+                "reservation_at": reservation.reservation_at.isoformat(),
+                "expected_end_at": reservation.expected_end_at.isoformat(),
+                "duration_minutes": parsed_duration_minutes,
+                "protection_minutes": parsed_protection_minutes,
+                "no_show_tolerance_minutes": parsed_no_show_tolerance_minutes,
+                "deposit_amount_tl": str(parsed_deposit_amount_tl) if parsed_deposit_amount_tl is not None else None,
+                "deposit_note": reservation.deposit_note,
+                "note": reservation.note,
+            },
+        },
+    )
+
+    db.session.commit()
+
+    return reservation
+
+
+def get_reservation_protection_start(reservation):
+    reservation_at = ensure_utc_datetime(reservation.reservation_at)
+    return reservation_at - timedelta(minutes=reservation.protection_minutes or 0)
+
+
+def get_reservation_no_show_deadline(reservation):
+    reservation_at = ensure_utc_datetime(reservation.reservation_at)
+    return reservation_at + timedelta(minutes=reservation.no_show_tolerance_minutes or 0)
+
+
+def get_blocking_reservation_for_table(table_id, reference_time=None):
+    if reference_time is None:
+        reference_time = utc_now()
+
+    reference_time = ensure_utc_datetime(reference_time)
+
+    confirmed_reservations = (
+        Reservation.query
+        .filter(
+            Reservation.table_id == table_id,
+            Reservation.status == Reservation.STATUS_CONFIRMED,
+            Reservation.reservation_at >= reference_time - timedelta(hours=6),
+        )
+        .order_by(Reservation.reservation_at.asc())
+        .all()
+    )
+
+    for reservation in confirmed_reservations:
+        protection_start = get_reservation_protection_start(reservation)
+        no_show_deadline = get_reservation_no_show_deadline(reservation)
+
+        if protection_start <= reference_time <= no_show_deadline:
+            return reservation
+
+    return None
+
+
+def mark_reservation_no_show(
+    reservation_id,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    reservation = db.session.get(Reservation, reservation_id)
+
+    if reservation is None:
+        raise ValueError("Rezervasyon bulunamadı.")
+
+    if reservation.status == Reservation.STATUS_NO_SHOW:
+        return reservation
+
+    if reservation.status in [Reservation.STATUS_CANCELLED, Reservation.STATUS_COMPLETED]:
+        raise ValueError("Bu rezervasyon gelmedi olarak işaretlenemez.")
+
+    now = utc_now()
+    reservation.status = Reservation.STATUS_NO_SHOW
+    reservation.no_show_at = now
+    reservation.no_show_by_user_id = user_id
+
+    if reservation.customer is not None:
+        reservation.customer.no_show_count = (reservation.customer.no_show_count or 0) + 1
+        reservation.customer.last_no_show_at = now
+        reservation.customer.last_seen_at = now
+
+    log_action(
+        action_type="reservation_no_show",
+        target_type="reservation",
+        target_id=reservation.id,
+        target_label=reservation.table.code if reservation.table else str(reservation.id),
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"{reservation.table.code if reservation.table else '-'} masası rezervasyonu gelmedi olarak işaretlendi."
+        ),
+        extra_data={
+            "reservation_id": reservation.id,
+            "table_id": reservation.table_id,
+            "table_code": reservation.table.code if reservation.table else None,
+            "customer_id": reservation.customer_id,
+            "customer_name": reservation.customer_name,
+            "customer_phone": reservation.customer_phone,
+            "reservation_at": reservation.reservation_at.isoformat() if reservation.reservation_at else None,
+            "no_show_at": now.isoformat(),
+        },
+    )
+
+    db.session.commit()
+
+    return reservation
+
+
+def cancel_reservation(
+    reservation_id,
+    cancel_reason=None,
+    user_id=None,
+    username_snapshot="system",
+    role_snapshot="system",
+):
+    reservation = db.session.get(Reservation, reservation_id)
+
+    if reservation is None:
+        raise ValueError("Rezervasyon bulunamadı.")
+
+    if reservation.status == Reservation.STATUS_CANCELLED:
+        return reservation
+
+    if reservation.status in [Reservation.STATUS_SEATED, Reservation.STATUS_COMPLETED]:
+        raise ValueError("Masaya alınmış veya tamamlanmış rezervasyon iptal edilemez.")
+
+    if reservation.status == Reservation.STATUS_NO_SHOW:
+        raise ValueError("Gelmedi olarak işaretlenmiş rezervasyon iptal edilemez.")
+
+    cleaned_cancel_reason = normalize_optional_text(cancel_reason)
+    now = utc_now()
+
+    reservation.status = Reservation.STATUS_CANCELLED
+    reservation.cancelled_at = now
+    reservation.cancelled_by_user_id = user_id
+    reservation.cancel_reason = cleaned_cancel_reason
+
+    log_action(
+        action_type="reservation_cancelled",
+        target_type="reservation",
+        target_id=reservation.id,
+        target_label=reservation.table.code if reservation.table else str(reservation.id),
+        user_id=user_id,
+        username_snapshot=username_snapshot,
+        role_snapshot=role_snapshot,
+        description=(
+            f"{reservation.table.code if reservation.table else '-'} masası rezervasyonu iptal edildi."
+        ),
+        extra_data={
+            "reservation_id": reservation.id,
+            "table_id": reservation.table_id,
+            "table_code": reservation.table.code if reservation.table else None,
+            "customer_id": reservation.customer_id,
+            "customer_name": reservation.customer_name,
+            "customer_phone": reservation.customer_phone,
+            "reservation_at": reservation.reservation_at.isoformat() if reservation.reservation_at else None,
+            "cancelled_at": now.isoformat(),
+            "cancel_reason": cleaned_cancel_reason,
+        },
+    )
+
+    db.session.commit()
+
+    return reservation
 
 
 SERVICE_REQUEST_TYPE_LABELS = {

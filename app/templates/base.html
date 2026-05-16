@@ -34,6 +34,17 @@
 
             <div class="topbar-right">
                 {% if current_user.is_authenticated %}
+                <button
+                    class="reservation-open-button"
+                    type="button"
+                    data-bs-toggle="modal"
+                    data-bs-target="#reservationModal"
+                    title="Yeni rezervasyon al"
+                >
+                    <span class="reservation-open-icon">📅</span>
+                    <span class="reservation-open-text">Rezervasyon Al</span>
+                </button>
+
                 <div class="service-requests-widget">
                     <button
                         id="serviceRequestsButton"
@@ -224,6 +235,174 @@
     </div>
 
     {% if current_user.is_authenticated %}
+
+    <div class="modal fade" id="reservationModal" tabindex="-1" aria-labelledby="reservationModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content reservation-modal-content border-0 shadow">
+                <form method="post" action="{{ url_for('create_reservation_form') }}" class="reservation-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+
+                    <div class="modal-header reservation-modal-header">
+                        <div>
+                            <span class="reservation-modal-eyebrow">📅 Rezervasyon</span>
+                            <h2 class="modal-title" id="reservationModalLabel">
+                                Yeni Rezervasyon Al
+                            </h2>
+                            <p>
+                                Belirli masa için ileri tarihli rezervasyon oluşturun.
+                            </p>
+                        </div>
+
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                    </div>
+
+                    <div class="modal-body reservation-modal-body">
+                        <div class="reservation-rule-strip">
+                            <div>
+                                <span>Koruma</span>
+                                <strong>{{ reservation_defaults.protection_minutes }} dk</strong>
+                            </div>
+                            <div>
+                                <span>Tolerans</span>
+                                <strong>{{ reservation_defaults.no_show_tolerance_minutes }} dk</strong>
+                            </div>
+                            <div>
+                                <span>Varsayılan Süre</span>
+                                <strong>{{ reservation_defaults.duration_hours }} saat</strong>
+                            </div>
+                            <div>
+                                <span>Kapora</span>
+                                <strong>TL</strong>
+                            </div>
+                        </div>
+
+                        <div class="reservation-form-grid">
+                            <div>
+                                <label class="form-label fw-semibold">Rezervasyon Tarihi *</label>
+                                <input
+                                    type="date"
+                                    name="reservation_date"
+                                    class="form-control form-control-lg rounded-3"
+                                    value="{{ reservation_defaults.date }}"
+                                    required
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Saat *</label>
+                                <input
+                                    type="time"
+                                    name="reservation_time"
+                                    class="form-control form-control-lg rounded-3"
+                                    value="{{ reservation_defaults.time }}"
+                                    required
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Kişi Sayısı *</label>
+                                <input
+                                    type="number"
+                                    name="party_size"
+                                    class="form-control form-control-lg rounded-3"
+                                    min="1"
+                                    max="50"
+                                    value="4"
+                                    required
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Masa *</label>
+                                <select name="table_id" class="form-select form-select-lg rounded-3" required>
+                                    <option value="">Masa seçin</option>
+                                    {% for table in reservation_table_choices %}
+                                    <option value="{{ table.id }}">
+                                        {{ table.area_name }} / {{ table.code }} · {{ table.capacity }} kişi · {{ table.status_label }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Müşteri Adı</label>
+                                <input
+                                    type="text"
+                                    name="customer_name"
+                                    class="form-control form-control-lg rounded-3"
+                                    maxlength="120"
+                                    placeholder="Ad Soyad"
+                                    autocomplete="name"
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Telefon *</label>
+                                <input
+                                    type="tel"
+                                    name="customer_phone"
+                                    class="form-control form-control-lg rounded-3"
+                                    maxlength="40"
+                                    placeholder="05338463131"
+                                    autocomplete="tel"
+                                    required
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Kapora Tutarı TL</label>
+                                <input
+                                    type="text"
+                                    name="deposit_amount_tl"
+                                    class="form-control form-control-lg rounded-3"
+                                    placeholder="Örn: 3000"
+                                    inputmode="decimal"
+                                >
+                            </div>
+
+                            <div>
+                                <label class="form-label fw-semibold">Kapora Notu</label>
+                                <input
+                                    type="text"
+                                    name="deposit_note"
+                                    class="form-control form-control-lg rounded-3"
+                                    maxlength="255"
+                                    placeholder="Nakit / IBAN / açıklama"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label fw-semibold">Rezervasyon Notu</label>
+                            <textarea
+                                name="note"
+                                class="form-control rounded-3"
+                                rows="3"
+                                placeholder="Sahneye yakın masa, doğum günü, özel istek vb."
+                            ></textarea>
+                        </div>
+
+                        <div class="reservation-form-note">
+                            <strong>Bilgi:</strong>
+                            Telefon zorunludur. Aynı telefon daha önce müşteri hafızasında varsa rezervasyon o müşteriyle eşleşir.
+                            Aynı masa için çakışan saat aralığında ikinci rezervasyon alınmaz.
+                        </div>
+                    </div>
+
+                    <div class="modal-footer reservation-modal-footer">
+                        <button type="button" class="btn btn-light btn-lg rounded-3 fw-bold" data-bs-dismiss="modal">
+                            Vazgeç
+                        </button>
+                        <button type="submit" class="btn btn-primary btn-lg rounded-3 fw-bold" {% if not reservation_table_choices %}disabled{% endif %}>
+                            Rezervasyonu Kaydet
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="quickHelpModal" tabindex="-1" aria-labelledby="quickHelpModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4 border-0 shadow">

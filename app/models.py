@@ -139,6 +139,11 @@ class Table(db.Model):
         cascade="all, delete-orphan",
         lazy=True,
     )
+    reservations = db.relationship(
+        "Reservation",
+        back_populates="table",
+        lazy=True,
+    )
 
     __table_args__ = (
         db.UniqueConstraint("area_id", "number", name="uq_tables_area_number"),
@@ -161,6 +166,9 @@ class Customer(db.Model):
     first_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
     last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
     visit_count = db.Column(db.Integer, nullable=False, default=0)
+    reservation_count = db.Column(db.Integer, nullable=False, default=0)
+    no_show_count = db.Column(db.Integer, nullable=False, default=0)
+    last_no_show_at = db.Column(db.DateTime(timezone=True), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
@@ -173,6 +181,11 @@ class Customer(db.Model):
 
     sessions = db.relationship(
         "TableSession",
+        back_populates="customer",
+        lazy=True,
+    )
+    reservations = db.relationship(
+        "Reservation",
         back_populates="customer",
         lazy=True,
     )
@@ -191,6 +204,7 @@ class TableSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     table_id = db.Column(db.Integer, db.ForeignKey("tables.id"), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True, index=True)
+    reservation_id = db.Column(db.Integer, db.ForeignKey("reservations.id"), nullable=True, index=True)
 
     customer_name = db.Column(db.String(120), nullable=True)
     customer_phone = db.Column(db.String(30), nullable=True)
@@ -217,6 +231,7 @@ class TableSession(db.Model):
 
     table = db.relationship("Table", back_populates="sessions")
     customer = db.relationship("Customer", back_populates="sessions")
+    reservation = db.relationship("Reservation", back_populates="table_sessions")
     service_requests = db.relationship(
         "ServiceRequest",
         back_populates="table_session",
@@ -225,6 +240,92 @@ class TableSession(db.Model):
 
     def __repr__(self):
         return f"<TableSession table_id={self.table_id} status={self.status}>"
+
+
+class Reservation(db.Model):
+    __tablename__ = "reservations"
+
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_SEATED = "seated"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_NO_SHOW = "no_show"
+
+    DEFAULT_PROTECTION_MINUTES = 45
+    DEFAULT_NO_SHOW_TOLERANCE_MINUTES = 30
+    DEFAULT_DURATION_MINUTES = 180
+
+    id = db.Column(db.Integer, primary_key=True)
+    table_id = db.Column(db.Integer, db.ForeignKey("tables.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False, index=True)
+
+    customer_name = db.Column(db.String(120), nullable=True)
+    customer_phone = db.Column(db.String(40), nullable=False)
+    customer_phone_normalized = db.Column(db.String(20), nullable=False, index=True)
+
+    party_size = db.Column(db.Integer, nullable=False)
+    reservation_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+    expected_end_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+
+    duration_minutes = db.Column(
+        db.Integer,
+        nullable=False,
+        default=DEFAULT_DURATION_MINUTES,
+    )
+    protection_minutes = db.Column(
+        db.Integer,
+        nullable=False,
+        default=DEFAULT_PROTECTION_MINUTES,
+    )
+    no_show_tolerance_minutes = db.Column(
+        db.Integer,
+        nullable=False,
+        default=DEFAULT_NO_SHOW_TOLERANCE_MINUTES,
+    )
+
+    deposit_amount_tl = db.Column(db.Numeric(12, 2, asdecimal=True), nullable=True)
+    deposit_note = db.Column(db.String(255), nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    cancel_reason = db.Column(db.Text, nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=STATUS_CONFIRMED, index=True)
+
+    created_by_user_id = db.Column(db.Integer, nullable=True)
+    updated_by_user_id = db.Column(db.Integer, nullable=True)
+    cancelled_by_user_id = db.Column(db.Integer, nullable=True)
+    no_show_by_user_id = db.Column(db.Integer, nullable=True)
+
+    seated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    no_show_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    table = db.relationship("Table", back_populates="reservations")
+    customer = db.relationship("Customer", back_populates="reservations")
+    table_sessions = db.relationship(
+        "TableSession",
+        back_populates="reservation",
+        lazy=True,
+    )
+
+    __table_args__ = (
+        db.Index("ix_reservations_table_time", "table_id", "reservation_at"),
+        db.Index("ix_reservations_status_time", "status", "reservation_at"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<Reservation table_id={self.table_id} "
+            f"reservation_at={self.reservation_at} status={self.status}>"
+        )
 
 
 class ServiceRequest(db.Model):
@@ -319,14 +420,32 @@ def ensure_customer_schema():
     uygulama açılışında çalışır:
     - Yeni kurulumda tüm tabloları oluşturur.
     - Eski kurulumda customers ve service_requests tablolarını oluşturur.
-    - Eski table_sessions tablosuna customer_id kolonunu ekler.
+    - Eski table_sessions tablosuna customer_id ve reservation_id kolonlarını ekler.
     - Eski tables tablosuna qr_token kolonunu ekler.
+    - customers tablosuna rezervasyon/no-show sayaçlarını ekler.
+    - reservations tablosunu ve indekslerini hazırlar.
     - Mevcut masalara benzersiz QR token üretir.
     """
     db.create_all()
 
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
+
+    def add_missing_column(table_name, column_name, column_definition):
+        current_inspector = inspect(db.engine)
+        current_columns = {
+            column["name"]
+            for column in current_inspector.get_columns(table_name)
+        }
+
+        if column_name not in current_columns:
+            db.session.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN {column_name} {column_definition}"
+                )
+            )
+            db.session.commit()
 
     if "tables" in table_names:
         table_columns = {
@@ -355,11 +474,33 @@ def ensure_customer_schema():
             )
             db.session.commit()
 
+        if "reservation_id" not in table_session_columns:
+            db.session.execute(
+                text("ALTER TABLE table_sessions ADD COLUMN reservation_id INTEGER")
+            )
+            db.session.commit()
+
+    if "customers" in table_names:
+        add_missing_column("customers", "reservation_count", "INTEGER DEFAULT 0 NOT NULL")
+        add_missing_column("customers", "no_show_count", "INTEGER DEFAULT 0 NOT NULL")
+        add_missing_column("customers", "last_no_show_at", "DATETIME")
+
+    if "reservations" in table_names:
+        add_missing_column("reservations", "cancel_reason", "TEXT")
+
     db.session.execute(
         text(
             "CREATE INDEX IF NOT EXISTS "
             "ix_table_sessions_customer_id "
             "ON table_sessions (customer_id)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_table_sessions_reservation_id "
+            "ON table_sessions (reservation_id)"
         )
     )
 
@@ -392,6 +533,38 @@ def ensure_customer_schema():
             "CREATE INDEX IF NOT EXISTS "
             "ix_service_requests_session_status "
             "ON service_requests (table_session_id, status)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_reservations_table_time "
+            "ON reservations (table_id, reservation_at)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_reservations_status_time "
+            "ON reservations (status, reservation_at)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_reservations_customer_id "
+            "ON reservations (customer_id)"
+        )
+    )
+
+    db.session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_reservations_phone_normalized "
+            "ON reservations (customer_phone_normalized)"
         )
     )
 

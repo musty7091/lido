@@ -106,7 +106,7 @@
                 {% endif %}
 
                 <button
-                    class="table-card table-card-{{ table.status }}"
+                    class="table-card table-card-{{ table.status }}{% if table.has_reservation %} table-card-has-reservation table-card-reservation-{{ table.reservation_state }}{% endif %}"
                     type="button"
                     data-table-card
                     data-table-id="{{ table.id }}"
@@ -125,6 +125,26 @@
                     data-service-request-count="{{ table.service_request_count }}"
                     data-service-request-label="{{ table.service_request_label }}"
                     data-service-request-status="{{ table.service_request_status }}"
+                    data-reservation-has="{% if table.has_reservation %}1{% else %}0{% endif %}"
+                    data-reservation-id="{{ table.reservation_id }}"
+                    data-reservation-state="{{ table.reservation_state }}"
+                    data-reservation-state-label="{{ table.reservation_state_label }}"
+                    data-reservation-badge-label="{{ table.reservation_badge_label }}"
+                    data-reservation-time-label="{{ table.reservation_time_label }}"
+                    data-reservation-display="{{ table.reservation_display }}"
+                    data-reservation-date-value="{{ table.reservation_date_value }}"
+                    data-reservation-time-value="{{ table.reservation_time_value }}"
+                    data-reservation-duration-minutes="{{ table.reservation_duration_minutes }}"
+                    data-reservation-customer-name="{{ table.reservation_customer_name }}"
+                    data-reservation-customer-phone="{{ table.reservation_customer_phone }}"
+                    data-reservation-party-size="{{ table.reservation_party_size }}"
+                    data-reservation-deposit-display="{{ table.reservation_deposit_display }}"
+                    data-reservation-deposit-amount-value="{{ table.reservation_deposit_amount_value }}"
+                    data-reservation-deposit-note="{{ table.reservation_deposit_note }}"
+                    data-reservation-note="{{ table.reservation_note }}"
+                    data-reservation-protection-minutes="{{ table.reservation_protection_minutes }}"
+                    data-reservation-no-show-tolerance-minutes="{{ table.reservation_no_show_tolerance_minutes }}"
+                    data-reservation-blocks-assignment="{% if table.reservation_blocks_assignment %}1{% else %}0{% endif %}"
                 >
                     <div class="table-card-top">
                         <strong>{{ table.code }}</strong>
@@ -139,6 +159,16 @@
                         <span>Pasif</span>
                         {% endif %}
                     </div>
+
+                    {% if table.has_reservation %}
+                    <div
+                        class="table-reservation-corner-icon table-reservation-corner-icon-{{ table.reservation_state }}"
+                        title="{{ table.reservation_state_label }} - {{ table.reservation_display }}"
+                        aria-label="{{ table.reservation_state_label }} - {{ table.reservation_display }}"
+                    >
+                        📅
+                    </div>
+                    {% endif %}
 
                     <div class="table-card-detail">
                         {{ table.capacity }} kişilik
@@ -194,6 +224,72 @@
 
             <div id="selectedTableDuration" class="selected-table-duration">
                 Soldan bir masa seçin.
+            </div>
+
+            <div id="selectedReservationBox" class="reservation-detail-box is-hidden">
+                <div class="reservation-detail-title">
+                    <span id="selectedReservationIcon">📅</span>
+                    <div>
+                        <h3 id="selectedReservationTitle">Rezervasyon Bilgisi</h3>
+                        <p id="selectedReservationSummary">Bu masa için yaklaşan rezervasyon bulunuyor.</p>
+                    </div>
+                </div>
+
+                <div class="reservation-detail-grid">
+                    <div>
+                        <span>Tarih / Saat</span>
+                        <strong id="selectedReservationDateText">-</strong>
+                    </div>
+                    <div>
+                        <span>Kişi</span>
+                        <strong id="selectedReservationPartyText">-</strong>
+                    </div>
+                    <div>
+                        <span>Müşteri</span>
+                        <strong id="selectedReservationCustomerText">-</strong>
+                    </div>
+                    <div>
+                        <span>Telefon</span>
+                        <strong id="selectedReservationPhoneText">-</strong>
+                    </div>
+                    <div>
+                        <span>Kapora</span>
+                        <strong id="selectedReservationDepositText">-</strong>
+                    </div>
+                    <div>
+                        <span>Koruma</span>
+                        <strong id="selectedReservationProtectionText">-</strong>
+                    </div>
+                </div>
+
+                <div id="selectedReservationNoteBox" class="reservation-detail-note is-hidden">
+                    <span>Not</span>
+                    <p id="selectedReservationNoteText">-</p>
+                </div>
+
+                {% if current_user.is_authenticated and current_user.role == "admin" %}
+                <div class="reservation-detail-actions">
+                    <button
+                        id="editReservationButton"
+                        type="button"
+                        class="reservation-edit-button"
+                        disabled
+                    >
+                        Rezervasyonu Düzenle
+                    </button>
+
+                    <button
+                        id="cancelReservationButton"
+                        type="button"
+                        class="reservation-cancel-button"
+                        disabled
+                    >
+                        Rezervasyonu İptal Et
+                    </button>
+                    <small>Düzenleme ve iptal işlemleri yalnızca yönetici tarafından yapılabilir.</small>
+                </div>
+                {% endif %}
+
             </div>
         </div>
 
