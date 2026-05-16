@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="reservations-page-shell">
+    <div class="reservations-page-header">
+        <div>
+            <span class="reservations-page-eyebrow">📅 Rezervasyon Ajandası</span>
+            <h2>Rezervasyonlar</h2>
+            <p>
+                Varsayılan olarak bugünkü rezervasyonları gösterir. İstersen tarih, durum, alan, masa veya müşteri bilgisine göre filtreleyebilirsin.
+            </p>
+        </div>
+
+        <button
+            class="reservations-new-button"
+            type="button"
+            data-bs-toggle="modal"
+            data-bs-target="#reservationModal"
+        >
+            + Rezervasyon Al
+        </button>
+    </div>
+
+    <div class="reservation-quick-tabs">
+        <a
+            class="reservation-quick-tab {% if filters.period == 'today' %}is-active{% endif %}"
+            href="{{ url_for('reservations_page', period='today') }}"
+        >
+            Bugün
+        </a>
+        <a
+            class="reservation-quick-tab {% if filters.period == 'tomorrow' %}is-active{% endif %}"
+            href="{{ url_for('reservations_page', period='tomorrow') }}"
+        >
+            Yarın
+        </a>
+        <a
+            class="reservation-quick-tab {% if filters.period == 'week' %}is-active{% endif %}"
+            href="{{ url_for('reservations_page', period='week') }}"
+        >
+            Bu Hafta
+        </a>
+    </div>
+
+    {% set has_custom_reservation_filter = filters.period == 'custom' or filters.status != 'all' or filters.area_id != 'all' or filters.table_id != 'all' or filters.q %}
+
+    <button
+        type="button"
+        id="reservationMobileFilterToggle"
+        class="reservations-mobile-filter-toggle"
+        aria-expanded="{% if has_custom_reservation_filter %}true{% else %}false{% endif %}"
+        aria-controls="reservationsFilterCard"
+    >
+        <span>🔎</span>
+        <strong>{% if has_custom_reservation_filter %}Filtreleri Kapat{% else %}Filtreleri Aç{% endif %}</strong>
+    </button>
+
+    <form method="get" action="{{ url_for('reservations_page') }}" id="reservationsFilterCard" class="reservations-filter-card {% if has_custom_reservation_filter %}is-mobile-visible{% endif %}">
+        <div class="reservations-filter-grid">
+            <div>
+                <label>Dönem</label>
+                <select name="period" class="form-select">
+                    {% for option in reservation_period_options %}
+                    <option value="{{ option.value }}" {% if filters.period == option.value %}selected{% endif %}>
+                        {{ option.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Başlangıç</label>
+                <input type="date" name="start_date" class="form-control" value="{{ filters.start_date }}">
+            </div>
+
+            <div>
+                <label>Bitiş</label>
+                <input type="date" name="end_date" class="form-control" value="{{ filters.end_date }}">
+            </div>
+
+            <div>
+                <label>Durum</label>
+                <select name="status" class="form-select">
+                    {% for option in reservation_status_options %}
+                    <option value="{{ option.value }}" {% if filters.status == option.value %}selected{% endif %}>
+                        {{ option.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Alan</label>
+                <select name="area_id" class="form-select">
+                    <option value="all" {% if filters.area_id == 'all' %}selected{% endif %}>Tüm Alanlar</option>
+                    {% for area in area_options %}
+                    <option value="{{ area.id }}" {% if filters.area_id == area.id|string %}selected{% endif %}>
+                        {{ area.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Masa</label>
+                <select name="table_id" class="form-select">
+                    <option value="all" {% if filters.table_id == 'all' %}selected{% endif %}>Tüm Masalar</option>
+                    {% for table in table_options %}
+                    <option value="{{ table.id }}" {% if filters.table_id == table.id|string %}selected{% endif %}>
+                        {{ table.code }} · {{ table.area_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="reservations-search-field">
+                <label>Müşteri / Telefon / Masa Ara</label>
+                <input
+                    type="text"
+                    name="q"
+                    class="form-control"
+                    value="{{ filters.q }}"
+                    placeholder="Örn: Mustafa, 0533, A5"
+                >
+            </div>
+
+            <div class="reservations-filter-actions">
+                <button type="submit" class="btn btn-primary rounded-3 fw-bold">
+                    Filtrele
+                </button>
+                <a href="{{ url_for('reservations_page') }}" class="btn btn-outline-secondary rounded-3 fw-bold">
+                    Sıfırla
+                </a>
+            </div>
+        </div>
+    </form>
+
+    <div id="reservationPageMessage" class="reservation-page-message is-hidden"></div>
+
+    <div class="reservations-summary-grid">
+        <div class="reservations-summary-card reservations-summary-primary">
+            <span>{{ filters.period_title }}</span>
+            <strong>{{ reservation_summary.total_count }}</strong>
+            <small>Toplam rezervasyon</small>
+        </div>
+        <div class="reservations-summary-card">
+            <span>Onaylı</span>
+            <strong>{{ reservation_summary.confirmed_count }}</strong>
+            <small>Bekleyen aktif kayıt</small>
+        </div>
+        <div class="reservations-summary-card">
+            <span>İptal</span>
+            <strong>{{ reservation_summary.cancelled_count }}</strong>
+            <small>İptal edilen</small>
+        </div>
+        <div class="reservations-summary-card">
+            <span>Gelmedi</span>
+            <strong>{{ reservation_summary.no_show_count }}</strong>
+            <small>Gelmedi işaretlenen</small>
+        </div>
+        <div class="reservations-summary-card">
+            <span>Kişi</span>
+            <strong>{{ reservation_summary.total_party_size }}</strong>
+            <small>Toplam kişi sayısı</small>
+        </div>
+        <div class="reservations-summary-card">
+            <span>Kapora</span>
+            <strong>{{ reservation_summary.deposit_total_display }}</strong>
+            <small>Kayıtlı TL kapora</small>
+        </div>
+    </div>
+
+    <div class="reservations-list-card">
+        <div class="reservations-list-header">
+            <div>
+                <h3>{{ filters.period_title }}</h3>
+                <p>Saat sırasına göre listelenir. Geçmiş kayıtlar sadece tarih filtresiyle görüntülenir.</p>
+            </div>
+            <span>{{ reservation_rows|length }} kayıt</span>
+        </div>
+
+        {% if reservation_rows %}
+        <div class="reservations-table-wrap">
+            <table class="table reservations-table align-middle">
+                <thead>
+                    <tr>
+                        <th>Saat</th>
+                        <th>Masa</th>
+                        <th>Müşteri</th>
+                        <th>Telefon</th>
+                        <th>Kişi</th>
+                        <th>Kapora</th>
+                        <th>Durum</th>
+                        <th>Not</th>
+                        <th class="text-end">İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in reservation_rows %}
+                    <tr>
+                        <td>
+                            <strong class="reservation-time-cell">{{ row.time_display }}</strong>
+                            <small>{{ row.date_display }}</small>
+                        </td>
+                        <td>
+                            <strong>{{ row.table_code }}</strong>
+                            <small>{{ row.area_name }}</small>
+                        </td>
+                        <td>
+                            <strong>{{ row.customer_name }}</strong>
+                            {% if row.cancel_reason %}
+                            <small>İptal: {{ row.cancel_reason }}</small>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.customer_phone }}</td>
+                        <td>{{ row.party_size }}</td>
+                        <td>
+                            <strong>{{ row.deposit_display }}</strong>
+                            {% if row.deposit_note %}
+                            <small>{{ row.deposit_note }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="reservation-status-pill reservation-status-{{ row.status_class }}">
+                                {{ row.status_label }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if row.note %}
+                            <span class="reservation-note-preview">{{ row.note }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if current_user.role == "admin" and row.can_admin_edit %}
+                            <div class="reservation-row-actions">
+                                <button
+                                    type="button"
+                                    class="reservation-row-edit-button"
+                                    data-reservation-edit
+                                    data-reservation-id="{{ row.id }}"
+                                    data-table-id="{{ row.table_id }}"
+                                    data-date-value="{{ row.date_value }}"
+                                    data-time-value="{{ row.time_value }}"
+                                    data-party-size="{{ row.party_size }}"
+                                    data-customer-name="{{ row.customer_name }}"
+                                    data-customer-phone="{{ row.customer_phone }}"
+                                    data-deposit-amount="{{ row.deposit_amount_value }}"
+                                    data-deposit-note="{{ row.deposit_note }}"
+                                    data-note="{{ row.note }}"
+                                    data-duration-minutes="{{ row.duration_minutes }}"
+                                    data-protection-minutes="{{ row.protection_minutes }}"
+                                    data-no-show-tolerance-minutes="{{ row.no_show_tolerance_minutes }}"
+                                    data-table-code="{{ row.table_code }}"
+                                    data-reservation-display="{{ row.reservation_display }}"
+                                >
+                                    Düzenle
+                                </button>
+                                <button
+                                    type="button"
+                                    class="reservation-row-cancel-button"
+                                    data-reservation-cancel
+                                    data-reservation-id="{{ row.id }}"
+                                    data-table-code="{{ row.table_code }}"
+                                    data-reservation-display="{{ row.reservation_display }}"
+                                    data-customer-name="{{ row.customer_name }}"
+                                    data-customer-phone="{{ row.customer_phone }}"
+                                    data-party-size="{{ row.party_size }}"
+                                    data-deposit-display="{{ row.deposit_display }}"
+                                >
+                                    İptal
+                                </button>
+                            </div>
+                            {% else %}
+                            <span class="reservation-row-passive-action">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="reservations-mobile-list" aria-label="Mobil rezervasyon listesi">
+            {% for row in reservation_rows %}
+            <article class="reservation-mobile-card reservation-mobile-card-{{ row.status_class }}">
+                <div class="reservation-mobile-card-top">
+                    <div>
+                        <span class="reservation-mobile-time">{{ row.time_display }}</span>
+                        <strong>{{ row.table_code }} · {{ row.area_name }}</strong>
+                    </div>
+                    <span class="reservation-status-pill reservation-status-{{ row.status_class }}">
+                        {{ row.status_label }}
+                    </span>
+                </div>
+
+                <div class="reservation-mobile-customer">
+                    <strong>{{ row.customer_name }}</strong>
+                    <a href="tel:{{ row.customer_phone }}">{{ row.customer_phone }}</a>
+                </div>
+
+                <div class="reservation-mobile-meta">
+                    <span>👥 {{ row.party_size }} kişi</span>
+                    <span>💰 {{ row.deposit_display }}</span>
+                    <span>📅 {{ row.date_display }}</span>
+                </div>
+
+                {% if row.cancel_reason %}
+                <div class="reservation-mobile-note reservation-mobile-cancel-reason">
+                    İptal: {{ row.cancel_reason }}
+                </div>
+                {% endif %}
+
+                {% if row.note %}
+                <div class="reservation-mobile-note">
+                    Not: {{ row.note }}
+                </div>
+                {% endif %}
+
+                {% if current_user.role == "admin" and row.can_admin_edit %}
+                <div class="reservation-mobile-actions">
+                    <button
+                        type="button"
+                        class="reservation-row-edit-button"
+                        data-reservation-edit
+                        data-reservation-id="{{ row.id }}"
+                        data-table-id="{{ row.table_id }}"
+                        data-date-value="{{ row.date_value }}"
+                        data-time-value="{{ row.time_value }}"
+                        data-party-size="{{ row.party_size }}"
+                        data-customer-name="{{ row.customer_name }}"
+                        data-customer-phone="{{ row.customer_phone }}"
+                        data-deposit-amount="{{ row.deposit_amount_value }}"
+                        data-deposit-note="{{ row.deposit_note }}"
+                        data-note="{{ row.note }}"
+                        data-duration-minutes="{{ row.duration_minutes }}"
+                        data-protection-minutes="{{ row.protection_minutes }}"
+                        data-no-show-tolerance-minutes="{{ row.no_show_tolerance_minutes }}"
+                        data-table-code="{{ row.table_code }}"
+                        data-reservation-display="{{ row.reservation_display }}"
+                    >
+                        Düzenle
+                    </button>
+                    <button
+                        type="button"
+                        class="reservation-row-cancel-button"
+                        data-reservation-cancel
+                        data-reservation-id="{{ row.id }}"
+                        data-table-code="{{ row.table_code }}"
+                        data-reservation-display="{{ row.reservation_display }}"
+                        data-customer-name="{{ row.customer_name }}"
+                        data-customer-phone="{{ row.customer_phone }}"
+                        data-party-size="{{ row.party_size }}"
+                        data-deposit-display="{{ row.deposit_display }}"
+                    >
+                        İptal
+                    </button>
+                </div>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="reservations-empty-state">
+            <div>📅</div>
+            <strong>Bu filtreye uygun rezervasyon yok.</strong>
+            <p>Yeni rezervasyon alabilir veya tarih/durum filtrelerini değiştirebilirsin.</p>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+{% if current_user.role == "admin" %}
+<div class="modal fade" id="reservationListEditModal" tabindex="-1" aria-labelledby="reservationListEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content reservation-list-action-modal border-0 shadow">
+            <div class="modal-header reservation-list-action-header">
+                <div>
+                    <span>📅 Rezervasyon Düzenleme</span>
+                    <h2 class="modal-title" id="reservationListEditModalLabel">Rezervasyonu Düzenle</h2>
+                    <p>Değişiklik sonrası masa ve saat çakışması yeniden kontrol edilir.</p>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body reservation-list-action-body">
+                <input type="hidden" id="reservationListEditId">
+                <div class="reservation-list-form-grid">
+                    <div>
+                        <label>Tarih *</label>
+                        <input type="date" id="reservationListEditDate" class="form-control">
+                    </div>
+                    <div>
+                        <label>Saat *</label>
+                        <input type="time" id="reservationListEditTime" class="form-control">
+                    </div>
+                    <div>
+                        <label>Masa *</label>
+                        <select id="reservationListEditTable" class="form-select">
+                            {% for table in reservation_table_choices %}
+                            <option value="{{ table.id }}">{{ table.code }} · {{ table.area_name }} · {{ table.capacity }} kişilik</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Kişi Sayısı *</label>
+                        <input type="number" id="reservationListEditPartySize" class="form-control" min="1" max="50">
+                    </div>
+                    <div>
+                        <label>Müşteri Adı</label>
+                        <input type="text" id="reservationListEditCustomerName" class="form-control">
+                    </div>
+                    <div>
+                        <label>Telefon *</label>
+                        <input type="text" id="reservationListEditCustomerPhone" class="form-control">
+                    </div>
+                    <div>
+                        <label>Kapora Tutarı TL</label>
+                        <input type="text" id="reservationListEditDepositAmount" class="form-control">
+                    </div>
+                    <div>
+                        <label>Kapora Notu</label>
+                        <input type="text" id="reservationListEditDepositNote" class="form-control">
+                    </div>
+                </div>
+                <label class="reservation-list-note-label">Rezervasyon Notu</label>
+                <textarea id="reservationListEditNote" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="modal-footer reservation-list-action-footer">
+                <button type="button" class="btn btn-outline-secondary rounded-3 fw-bold" data-bs-dismiss="modal">Vazgeç</button>
+                <button type="button" id="reservationListEditSubmit" class="btn btn-primary rounded-3 fw-bold">Değişiklikleri Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="reservationListCancelModal" tabindex="-1" aria-labelledby="reservationListCancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content reservation-list-action-modal border-0 shadow">
+            <div class="modal-header reservation-list-cancel-header">
+                <div>
+                    <span>Rezervasyon İptali</span>
+                    <h2 class="modal-title" id="reservationListCancelModalLabel">Rezervasyonu İptal Et</h2>
+                    <p>İptal edilen rezervasyon masa kartından kaldırılır.</p>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body reservation-list-action-body">
+                <input type="hidden" id="reservationListCancelId">
+                <div class="reservation-list-cancel-info" id="reservationListCancelInfo"></div>
+                <label class="reservation-list-note-label">İptal Sebebi</label>
+                <textarea id="reservationListCancelReason" class="form-control" rows="3" placeholder="Örn: Müşteri iptal etti, kapora iade edildi..."></textarea>
+            </div>
+            <div class="modal-footer reservation-list-action-footer">
+                <button type="button" class="btn btn-outline-secondary rounded-3 fw-bold" data-bs-dismiss="modal">Vazgeç</button>
+                <button type="button" id="reservationListCancelSubmit" class="btn btn-danger rounded-3 fw-bold">İptali Onayla</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const filterToggleButton = document.getElementById("reservationMobileFilterToggle");
+    const filterCard = document.getElementById("reservationsFilterCard");
+
+    if (!filterToggleButton || !filterCard) {
+        return;
+    }
+
+    function updateFilterToggleText() {
+        const isVisible = filterCard.classList.contains("is-mobile-visible");
+        const textElement = filterToggleButton.querySelector("strong");
+
+        filterToggleButton.setAttribute("aria-expanded", isVisible ? "true" : "false");
+
+        if (textElement) {
+            textElement.textContent = isVisible ? "Filtreleri Kapat" : "Filtreleri Aç";
+        }
+    }
+
+    filterToggleButton.addEventListener("click", function () {
+        filterCard.classList.toggle("is-mobile-visible");
+        updateFilterToggleText();
+    });
+
+    updateFilterToggleText();
+});
+</script>
+{% if current_user.role == "admin" %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const csrfTokenElement = document.querySelector("meta[name='csrf-token']");
+    const csrfToken = csrfTokenElement ? csrfTokenElement.getAttribute("content") : "";
+    const pageMessage = document.getElementById("reservationPageMessage");
+
+    const editModalElement = document.getElementById("reservationListEditModal");
+    const cancelModalElement = document.getElementById("reservationListCancelModal");
+    const editModal = editModalElement ? new bootstrap.Modal(editModalElement) : null;
+    const cancelModal = cancelModalElement ? new bootstrap.Modal(cancelModalElement) : null;
+
+    function showPageMessage(message, type) {
+        if (!pageMessage) {
+            alert(message);
+            return;
+        }
+
+        pageMessage.className = `reservation-page-message reservation-page-message-${type || "info"}`;
+        pageMessage.textContent = message;
+        pageMessage.classList.remove("is-hidden");
+        pageMessage.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function postJson(url, payload) {
+        const response = await fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || "İşlem sırasında hata oluştu.");
+        }
+
+        return data;
+    }
+
+    document.querySelectorAll("[data-reservation-edit]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            document.getElementById("reservationListEditId").value = button.dataset.reservationId || "";
+            document.getElementById("reservationListEditDate").value = button.dataset.dateValue || "";
+            document.getElementById("reservationListEditTime").value = button.dataset.timeValue || "";
+            document.getElementById("reservationListEditTable").value = button.dataset.tableId || "";
+            document.getElementById("reservationListEditPartySize").value = button.dataset.partySize || "";
+            document.getElementById("reservationListEditCustomerName").value = button.dataset.customerName || "";
+            document.getElementById("reservationListEditCustomerPhone").value = button.dataset.customerPhone || "";
+            document.getElementById("reservationListEditDepositAmount").value = button.dataset.depositAmount || "";
+            document.getElementById("reservationListEditDepositNote").value = button.dataset.depositNote || "";
+            document.getElementById("reservationListEditNote").value = button.dataset.note || "";
+
+            if (editModal) {
+                editModal.show();
+            }
+        });
+    });
+
+    document.querySelectorAll("[data-reservation-cancel]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            document.getElementById("reservationListCancelId").value = button.dataset.reservationId || "";
+            document.getElementById("reservationListCancelReason").value = "";
+
+            const info = document.getElementById("reservationListCancelInfo");
+            info.innerHTML = `
+                <div><span>Masa</span><strong>${button.dataset.tableCode || "-"}</strong></div>
+                <div><span>Tarih / Saat</span><strong>${button.dataset.reservationDisplay || "-"}</strong></div>
+                <div><span>Müşteri</span><strong>${button.dataset.customerName || "-"}</strong></div>
+                <div><span>Telefon</span><strong>${button.dataset.customerPhone || "-"}</strong></div>
+                <div><span>Kişi</span><strong>${button.dataset.partySize || "-"}</strong></div>
+                <div><span>Kapora</span><strong>${button.dataset.depositDisplay || "-"}</strong></div>
+            `;
+
+            if (cancelModal) {
+                cancelModal.show();
+            }
+        });
+    });
+
+    const editSubmit = document.getElementById("reservationListEditSubmit");
+    if (editSubmit) {
+        editSubmit.addEventListener("click", async function () {
+            const reservationId = document.getElementById("reservationListEditId").value;
+
+            if (!reservationId) {
+                showPageMessage("Düzenlenecek rezervasyon bulunamadı.", "danger");
+                return;
+            }
+
+            editSubmit.disabled = true;
+            editSubmit.textContent = "Kaydediliyor...";
+
+            try {
+                await postJson(`/api/reservations/${reservationId}/update`, {
+                    reservation_date: document.getElementById("reservationListEditDate").value,
+                    reservation_time: document.getElementById("reservationListEditTime").value,
+                    table_id: document.getElementById("reservationListEditTable").value,
+                    party_size: document.getElementById("reservationListEditPartySize").value,
+                    customer_name: document.getElementById("reservationListEditCustomerName").value,
+                    customer_phone: document.getElementById("reservationListEditCustomerPhone").value,
+                    deposit_amount_tl: document.getElementById("reservationListEditDepositAmount").value,
+                    deposit_note: document.getElementById("reservationListEditDepositNote").value,
+                    note: document.getElementById("reservationListEditNote").value,
+                });
+
+                window.location.reload();
+            } catch (error) {
+                showPageMessage(error.message, "danger");
+                editSubmit.disabled = false;
+                editSubmit.textContent = "Değişiklikleri Kaydet";
+            }
+        });
+    }
+
+    const cancelSubmit = document.getElementById("reservationListCancelSubmit");
+    if (cancelSubmit) {
+        cancelSubmit.addEventListener("click", async function () {
+            const reservationId = document.getElementById("reservationListCancelId").value;
+
+            if (!reservationId) {
+                showPageMessage("İptal edilecek rezervasyon bulunamadı.", "danger");
+                return;
+            }
+
+            cancelSubmit.disabled = true;
+            cancelSubmit.textContent = "İptal ediliyor...";
+
+            try {
+                await postJson(`/api/reservations/${reservationId}/cancel`, {
+                    cancel_reason: document.getElementById("reservationListCancelReason").value,
+                });
+
+                window.location.reload();
+            } catch (error) {
+                showPageMessage(error.message, "danger");
+                cancelSubmit.disabled = false;
+                cancelSubmit.textContent = "İptali Onayla";
+            }
+        });
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

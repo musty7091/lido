@@ -1,8 +1,9 @@
-from datetime import timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.admin import admin_bp
@@ -19,6 +20,7 @@ from app.services import (
     clear_table,
     complete_service_request,
     create_reservation,
+    get_reservation_status_label,
     update_reservation,
     cancel_reservation,
     create_service_request_from_qr,
@@ -455,6 +457,172 @@ def get_dashboard_context():
     return tables, dashboard_data
 
 
+RESERVATION_PERIOD_OPTIONS = [
+    {"value": "today", "label": "Bugün"},
+    {"value": "tomorrow", "label": "Yarın"},
+    {"value": "week", "label": "Bu Hafta"},
+    {"value": "custom", "label": "Tarih Seç"},
+]
+
+RESERVATION_STATUS_OPTIONS = [
+    {"value": "all", "label": "Tümü"},
+    {"value": Reservation.STATUS_CONFIRMED, "label": "Onaylandı"},
+    {"value": Reservation.STATUS_SEATED, "label": "Masaya Alındı"},
+    {"value": Reservation.STATUS_COMPLETED, "label": "Tamamlandı"},
+    {"value": Reservation.STATUS_CANCELLED, "label": "İptal"},
+    {"value": Reservation.STATUS_NO_SHOW, "label": "Gelmedi"},
+]
+
+
+def parse_filter_local_date(value, default_date):
+    cleaned_value = str(value or "").strip()
+
+    if cleaned_value == "":
+        return default_date
+
+    try:
+        return datetime.strptime(cleaned_value, "%Y-%m-%d").date()
+    except ValueError:
+        return default_date
+
+
+def local_date_start_as_utc(local_date):
+    return datetime.combine(local_date, time.min).replace(
+        tzinfo=DISPLAY_TIMEZONE
+    ).astimezone(timezone.utc)
+
+
+def local_date_end_as_utc(local_date):
+    return datetime.combine(local_date + timedelta(days=1), time.min).replace(
+        tzinfo=DISPLAY_TIMEZONE
+    ).astimezone(timezone.utc)
+
+
+def build_reservation_date_filter(period, start_date_value=None, end_date_value=None):
+    today_local = utc_now().astimezone(DISPLAY_TIMEZONE).date()
+    cleaned_period = str(period or "today").strip()
+
+    valid_periods = {option["value"] for option in RESERVATION_PERIOD_OPTIONS}
+    if cleaned_period not in valid_periods:
+        cleaned_period = "today"
+
+    if cleaned_period == "tomorrow":
+        start_date = today_local + timedelta(days=1)
+        end_date = start_date
+        title = "Yarınki Rezervasyonlar"
+    elif cleaned_period == "week":
+        start_date = today_local
+        end_date = today_local + timedelta(days=6)
+        title = "Bu Haftaki Rezervasyonlar"
+    elif cleaned_period == "custom":
+        start_date = parse_filter_local_date(start_date_value, today_local)
+        end_date = parse_filter_local_date(end_date_value, start_date)
+        if end_date < start_date:
+            end_date = start_date
+        title = "Seçilen Tarih Aralığı"
+    else:
+        cleaned_period = "today"
+        start_date = today_local
+        end_date = today_local
+        title = "Bugünkü Rezervasyonlar"
+
+    return {
+        "period": cleaned_period,
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_date_value": start_date.strftime("%Y-%m-%d"),
+        "end_date_value": end_date.strftime("%Y-%m-%d"),
+        "start_utc": local_date_start_as_utc(start_date),
+        "end_utc": local_date_end_as_utc(end_date),
+        "title": title,
+    }
+
+
+def format_date_for_display(value):
+    normalized_value = normalize_datetime_as_utc(value)
+
+    if normalized_value is None:
+        return "-"
+
+    return normalized_value.astimezone(DISPLAY_TIMEZONE).strftime("%d.%m.%Y")
+
+
+def get_reservation_status_css_class(status):
+    status_class_map = {
+        Reservation.STATUS_CONFIRMED: "confirmed",
+        Reservation.STATUS_SEATED: "seated",
+        Reservation.STATUS_COMPLETED: "completed",
+        Reservation.STATUS_CANCELLED: "cancelled",
+        Reservation.STATUS_NO_SHOW: "no-show",
+    }
+
+    return status_class_map.get(status, "neutral")
+
+
+def build_reservation_page_row(reservation):
+    table = reservation.table
+    area = table.area if table is not None else None
+
+    return {
+        "id": reservation.id,
+        "date_display": format_date_for_display(reservation.reservation_at),
+        "time_display": format_time_for_display(reservation.reservation_at),
+        "reservation_display": format_datetime_for_display(reservation.reservation_at),
+        "date_value": normalize_datetime_as_utc(reservation.reservation_at).astimezone(DISPLAY_TIMEZONE).strftime("%Y-%m-%d") if reservation.reservation_at else "",
+        "time_value": normalize_datetime_as_utc(reservation.reservation_at).astimezone(DISPLAY_TIMEZONE).strftime("%H:%M") if reservation.reservation_at else "",
+        "table_id": reservation.table_id,
+        "table_code": table.code if table is not None else "-",
+        "area_name": area.name if area is not None else "-",
+        "customer_name": reservation.customer_name or "İsimsiz müşteri",
+        "customer_phone": reservation.customer_phone or "-",
+        "party_size": reservation.party_size or 0,
+        "deposit_display": format_tl_for_display(reservation.deposit_amount_tl),
+        "deposit_amount_value": str(reservation.deposit_amount_tl) if reservation.deposit_amount_tl is not None else "",
+        "deposit_note": reservation.deposit_note or "",
+        "note": reservation.note or "",
+        "duration_minutes": reservation.duration_minutes or Reservation.DEFAULT_DURATION_MINUTES,
+        "protection_minutes": reservation.protection_minutes or Reservation.DEFAULT_PROTECTION_MINUTES,
+        "no_show_tolerance_minutes": reservation.no_show_tolerance_minutes or Reservation.DEFAULT_NO_SHOW_TOLERANCE_MINUTES,
+        "status": reservation.status,
+        "status_label": get_reservation_status_label(reservation.status),
+        "status_class": get_reservation_status_css_class(reservation.status),
+        "cancel_reason": reservation.cancel_reason or "",
+        "created_display": format_datetime_for_display(reservation.created_at),
+        "can_admin_edit": reservation.status == Reservation.STATUS_CONFIRMED,
+        "can_admin_cancel": reservation.status == Reservation.STATUS_CONFIRMED,
+    }
+
+
+def build_reservation_page_summary(reservations):
+    total_deposit = 0
+    total_party_size = 0
+    status_counts = {
+        Reservation.STATUS_CONFIRMED: 0,
+        Reservation.STATUS_SEATED: 0,
+        Reservation.STATUS_COMPLETED: 0,
+        Reservation.STATUS_CANCELLED: 0,
+        Reservation.STATUS_NO_SHOW: 0,
+    }
+
+    for reservation in reservations:
+        total_party_size += reservation.party_size or 0
+        status_counts[reservation.status] = status_counts.get(reservation.status, 0) + 1
+
+        if reservation.deposit_amount_tl is not None:
+            total_deposit += float(reservation.deposit_amount_tl)
+
+    return {
+        "total_count": len(reservations),
+        "confirmed_count": status_counts.get(Reservation.STATUS_CONFIRMED, 0),
+        "cancelled_count": status_counts.get(Reservation.STATUS_CANCELLED, 0),
+        "no_show_count": status_counts.get(Reservation.STATUS_NO_SHOW, 0),
+        "seated_count": status_counts.get(Reservation.STATUS_SEATED, 0),
+        "completed_count": status_counts.get(Reservation.STATUS_COMPLETED, 0),
+        "total_party_size": total_party_size,
+        "deposit_total_display": format_tl_for_display(total_deposit) if total_deposit else "Kapora yok",
+    }
+
+
 def create_error_response(message, status_code=400):
     response = {
         "success": False,
@@ -807,6 +975,131 @@ def create_app():
                 "message": "Rezervasyon iptal edildi.",
                 "reservation_id": reservation.id,
             }
+        )
+
+
+    @app.get("/reservations")
+    @staff_required
+    def reservations_page():
+        date_filter = build_reservation_date_filter(
+            period=request.args.get("period", "today"),
+            start_date_value=request.args.get("start_date"),
+            end_date_value=request.args.get("end_date"),
+        )
+
+        selected_status = str(request.args.get("status", "all") or "all").strip()
+        selected_area_id = str(request.args.get("area_id", "all") or "all").strip()
+        selected_table_id = str(request.args.get("table_id", "all") or "all").strip()
+        search_text = str(request.args.get("q", "") or "").strip()
+
+        valid_statuses = {option["value"] for option in RESERVATION_STATUS_OPTIONS}
+        if selected_status not in valid_statuses:
+            selected_status = "all"
+
+        try:
+            areas = Area.query.filter_by(is_active=True).order_by(Area.display_order.asc()).all()
+            table_records = (
+                Table.query
+                .join(Area)
+                .filter(Area.is_active.is_(True))
+                .filter(Table.status != Table.STATUS_INACTIVE)
+                .order_by(Area.display_order.asc(), Table.sort_order.asc())
+                .all()
+            )
+
+            reservations_query = (
+                Reservation.query
+                .join(Table, Reservation.table_id == Table.id)
+                .join(Area, Table.area_id == Area.id)
+                .filter(Reservation.reservation_at >= date_filter["start_utc"])
+                .filter(Reservation.reservation_at < date_filter["end_utc"])
+            )
+
+            if selected_status != "all":
+                reservations_query = reservations_query.filter(Reservation.status == selected_status)
+
+            if selected_area_id != "all":
+                try:
+                    parsed_area_id = int(selected_area_id)
+                except ValueError:
+                    parsed_area_id = None
+
+                if parsed_area_id is not None:
+                    reservations_query = reservations_query.filter(Table.area_id == parsed_area_id)
+
+            if selected_table_id != "all":
+                try:
+                    parsed_table_id = int(selected_table_id)
+                except ValueError:
+                    parsed_table_id = None
+
+                if parsed_table_id is not None:
+                    reservations_query = reservations_query.filter(Reservation.table_id == parsed_table_id)
+
+            if search_text:
+                search_pattern = f"%{search_text}%"
+                reservations_query = reservations_query.filter(
+                    or_(
+                        Reservation.customer_name.ilike(search_pattern),
+                        Reservation.customer_phone.ilike(search_pattern),
+                        Reservation.customer_phone_normalized.ilike(search_pattern),
+                        Table.code.ilike(search_pattern),
+                    )
+                )
+
+            reservations = (
+                reservations_query
+                .order_by(Reservation.reservation_at.asc(), Reservation.id.asc())
+                .all()
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            areas = []
+            table_records = []
+            reservations = []
+            flash("Rezervasyonlar listelenirken veritabanı hatası oluştu.", "danger")
+
+        area_options = [
+            {
+                "id": area.id,
+                "name": area.name,
+            }
+            for area in areas
+        ]
+        table_options = [
+            {
+                "id": table.id,
+                "code": table.code,
+                "area_name": table.area.name if table.area else "-",
+                "capacity": table.capacity,
+            }
+            for table in table_records
+        ]
+        reservation_rows = [
+            build_reservation_page_row(reservation)
+            for reservation in reservations
+        ]
+        reservation_summary = build_reservation_page_summary(reservations)
+
+        return render_template(
+            "reservations.html",
+            app_name=app.config["APP_NAME"],
+            reservation_rows=reservation_rows,
+            reservation_summary=reservation_summary,
+            reservation_period_options=RESERVATION_PERIOD_OPTIONS,
+            reservation_status_options=RESERVATION_STATUS_OPTIONS,
+            area_options=area_options,
+            table_options=table_options,
+            filters={
+                "period": date_filter["period"],
+                "period_title": date_filter["title"],
+                "start_date": date_filter["start_date_value"],
+                "end_date": date_filter["end_date_value"],
+                "status": selected_status,
+                "area_id": selected_area_id,
+                "table_id": selected_table_id,
+                "q": search_text,
+            },
         )
 
 

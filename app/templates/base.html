@@ -26,24 +26,46 @@
                     >
                 </a>
 
-                <div class="brand-title">
-                    <h1>{{ app_name }}</h1>
-                    <p>Canlı doluluk ve masa yönlendirme</p>
-                </div>
             </div>
 
             <div class="topbar-right">
                 {% if current_user.is_authenticated %}
-                <button
-                    class="reservation-open-button"
-                    type="button"
-                    data-bs-toggle="modal"
-                    data-bs-target="#reservationModal"
-                    title="Yeni rezervasyon al"
-                >
-                    <span class="reservation-open-icon">📅</span>
-                    <span class="reservation-open-text">Rezervasyon Al</span>
-                </button>
+                <div class="dropdown reservation-topbar-menu">
+                    <button
+                        class="reservation-open-button reservation-menu-button"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                        title="Rezervasyon işlemleri"
+                    >
+                        <span class="reservation-open-icon">📅</span>
+                        <span class="reservation-open-text">Rezervasyon</span>
+                        <span class="reservation-menu-arrow">▾</span>
+                    </button>
+
+                    <div class="dropdown-menu dropdown-menu-end reservation-dropdown-menu">
+                        <button
+                            class="reservation-dropdown-item"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#reservationModal"
+                        >
+                            <span>➕</span>
+                            <div>
+                                <strong>Rezervasyon Al</strong>
+                                <small>Yeni ileri tarihli masa kaydı oluştur</small>
+                            </div>
+                        </button>
+
+                        <a class="reservation-dropdown-item" href="{{ url_for('reservations_page') }}">
+                            <span>📋</span>
+                            <div>
+                                <strong>Rezervasyonlar</strong>
+                                <small>Bugün ve filtreli rezervasyon listesini aç</small>
+                            </div>
+                        </a>
+                    </div>
+                </div>
 
                 <div class="service-requests-widget">
                     <button
